@@ -1,4 +1,4 @@
-export type MemberStatus = '대기' | '성공' | '실패';
+export type MemberStatus = '활동' | '비활동';
 
 export interface Member {
   name: string;

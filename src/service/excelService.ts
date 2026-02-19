@@ -1,9 +1,10 @@
 import * as XLSX from 'xlsx';
-import type { Member } from '../types/member';
+import type { Member, MemberStatus } from '../types/member';
 
 interface ExcelRow {
   이름: string;
   전화번호: string;
+  상태: MemberStatus;
 }
 
 export function parseExcel(file: File): Promise<Member[]> {
@@ -22,7 +23,7 @@ export function parseExcel(file: File): Promise<Member[]> {
       const parsed: Member[] = data.map((row) => ({
         name: row.이름 ?? '',
         phone: row.전화번호 ?? '',
-        status: '대기',
+        status: row.상태 ?? '활동',
       }));
 
       resolve(parsed);
