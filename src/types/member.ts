@@ -4,6 +4,7 @@ export interface Member {
   name: string;
   phone: string;
   status: MemberStatus;
+  index?: number;
 }
 
 export interface SendSMSPayload {

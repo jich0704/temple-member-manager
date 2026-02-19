@@ -47,16 +47,35 @@ app.whenReady().then(() => {
   createWindow();
 });
 
-ipcMain.handle('save-members', (_, data) => {
+ipcMain.handle('save-members', (_, newMembers) => {
   if (!store) initStore();
-  store.set('members', data);
+
+  const existingMembers = store.get('members', []);
+  const lastIndex = store.get('membersLastIndex', 0);
+
+  let currentIndex = lastIndex;
+
+  const membersWithIndex = newMembers.map((member) => {
+    currentIndex += 1;
+    return {
+      ...member,
+      index: currentIndex,
+    };
+  });
+
+  const updatedMembers = [...existingMembers, ...membersWithIndex];
+
+  store.set('members', updatedMembers);
+  store.set('membersLastIndex', currentIndex);
+
+  return membersWithIndex;
 });
 
 ipcMain.handle('load-members', () => {
   if (!store) initStore();
-  const data = store.get('members');
-  console.log('Loaded members:', data);
-  return data || [];
+  const data = store.get('members', []);
+
+  return [...data].sort((a, b) => b.index - a.index) || [];
 });
 
 ipcMain.handle('send-sms', async (_, payload) => {
