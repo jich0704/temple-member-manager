@@ -9,15 +9,11 @@ export function useMembers() {
 
   useEffect(() => {
     if (window.api?.loadMembers) {
-      window.api.loadMembers().then(setMembers);
+      window.api.loadMembers().then((data) => {
+        if (data) setMembers(data);
+      });
     }
   }, []);
-
-  useEffect(() => {
-    if (window.api?.saveMembers) {
-      window.api.saveMembers(members);
-    }
-  }, [members]);
 
   return { members, setMembers };
 }

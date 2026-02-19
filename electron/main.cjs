@@ -2,11 +2,18 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const Store = require('electron-store').default;
 
-const store = new Store({
-  name: 'members',
-});
+let store;
 
-console.log('Store path:', store.path);
+const initStore = () => {
+  store = new Store({
+    name: 'members',
+    cwd: app.getPath('userData'),
+    fileExtension: 'json',
+  });
+
+  console.log('Store path:', store.path);
+};
+
 console.log('dirname:', __dirname);
 console.log('preload path:', path.join(__dirname, 'preload.cjs'));
 
@@ -35,13 +42,18 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  initStore();
+  createWindow();
+});
 
 ipcMain.handle('save-members', (_, data) => {
+  if (!store) initStore();
   store.set('members', data);
 });
 
 ipcMain.handle('load-members', () => {
+  if (!store) initStore();
   const data = store.get('members');
   console.log('Loaded members:', data);
   return data || [];

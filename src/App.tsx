@@ -21,7 +21,7 @@ function App() {
 
   const handleUpload = async (file: File) => {
     const parsed = await parseExcel(file);
-    setMembers(parsed);
+    setMembers([...members, ...parsed]);
 
     await window.api.saveMembers(parsed);
   };
