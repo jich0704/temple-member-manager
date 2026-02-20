@@ -1,4 +1,4 @@
-import { Download, Send, Upload } from 'lucide-react';
+import { Send, Upload } from 'lucide-react';
 import { Button } from './ui/button';
 
 interface Props {
@@ -17,12 +17,12 @@ export default function Header({ onUpload, onSend, isSending }: Props) {
 
       {/* 버튼 영역 */}
       <div className="flex items-center gap-3">
-        <Button variant="outline" className="gap-2" asChild>
+        {/* <Button variant="outline" className="gap-2" asChild>
           <a href="/temple_member_sample.xlsx" download>
             <Download className="w-4 h-4" />
             샘플 다운로드
           </a>
-        </Button>
+        </Button> */}
 
         {/* 엑셀 업로드 */}
         <label>
@@ -44,6 +44,7 @@ export default function Header({ onUpload, onSend, isSending }: Props) {
         </label>
 
         {/* SMS 발송 */}
+        {/* 개별회원이아닌 다중회원에게 보낼떄 쓸 버튼 */}
         <Button onClick={onSend} disabled={isSending} className="gap-2 bg-gradient-to-r from-slate-700 to-slate-900 hover:from-slate-800 hover:to-black">
           <Send className="w-4 h-4" />
           {isSending ? '발송중...' : 'SMS 발송'}

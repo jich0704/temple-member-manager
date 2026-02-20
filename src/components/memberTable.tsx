@@ -1,85 +1,149 @@
 import { useDebounce } from '@/hooks/useDebounce';
-import { ChevronLeft, ChevronRight, Phone, Trash2, User } from 'lucide-react';
+import type { Member } from '@/types/member';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, MessageSquare, Settings2, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { Member, MemberStatus } from '../types/member';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface Props {
-  members: Member[];
+  members: Member[]; // 동적 객체 배열
   onDeleteMembers: (ids: string[]) => void;
-  onUpdateMemberStatus: (id: string, status: MemberStatus) => void;
 }
 
-export default function MemberTable({ members, onDeleteMembers, onUpdateMemberStatus }: Props) {
-  const [searchName, setSearchName] = useState('');
-  const [searchPhone, setSearchPhone] = useState('');
-  const [searchStatus, setSearchStatus] = useState<MemberStatus | '전체'>('전체');
+export default function MemberTable({ members, onDeleteMembers }: Props) {
+  const [searchKeyword, setSearchKeyword] = useState(''); // 이름/전화번호 대신 통합 검색으로 변경
+  const [searchStatus, setSearchStatus] = useState<string>('전체');
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  const debouncedName = useDebounce(searchName, 300);
-  const debouncedPhone = useDebounce(searchPhone, 300);
+  const [visibleColumns, setVisibleColumns] = useState<string[] | null>(null);
+  const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
 
-  const normalizePhone = (phone: string) => phone.replace(/-/g, '');
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-  const normalizeText = (text: string) => text.toLowerCase();
+  const debouncedKeyword = useDebounce(searchKeyword, 300);
 
+  // 1. 동적 컬럼 추출 (members 배열의 첫 번째 객체에서 key를 뽑아냄)
+  const dynamicHeaders = useMemo(() => {
+    if (members.length === 0) return [];
+    // 시스템에서 강제로 쓰는 필드나 화면에 별도로 빼는 필드는 테이블 동적 렌더링에서 제외
+    const excludeKeys = ['index', 'status', '상태'];
+    return Object.keys(members[0]).filter((key) => !excludeKeys.includes(key));
+  }, [members]);
+
+  // 2. 검색 필터링 로직 (통합 검색)
   const filteredMembers = useMemo(() => {
     return members.filter((m) => {
-      const matchName = normalizeText(m.name).includes(normalizeText(debouncedName));
+      // 키워드가 어떤 컬럼의 값에라도 포함되어 있으면 통과
+      const matchKeyword =
+        debouncedKeyword === '' ||
+        dynamicHeaders.some((header) =>
+          String(m[header] || '')
+            .toLowerCase()
+            .includes(debouncedKeyword.toLowerCase()),
+        );
+      let calculatedStatus = '활동'; // 기본값
+      const endDate = m['종료일'] ? String(m['종료일']) : null;
 
-      const matchPhone = normalizePhone(m.phone).includes(normalizePhone(debouncedPhone));
+      if (endDate) {
+        const targetDate = new Date(endDate);
+        if (!isNaN(targetDate.getTime())) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          targetDate.setHours(0, 0, 0, 0);
 
-      const matchStatus = searchStatus === '전체' ? true : m.status === searchStatus;
+          // 오늘 날짜보다 이전이면 '비활동'으로 간주
+          if (targetDate.getTime() < today.getTime()) {
+            calculatedStatus = '비활동';
+          }
+        }
+      }
 
-      return matchName && matchPhone && matchStatus;
+      const matchStatus = searchStatus === '전체' ? true : calculatedStatus === searchStatus;
+
+      return matchKeyword && matchStatus;
     });
-  }, [members, debouncedName, debouncedPhone, searchStatus]);
+  }, [members, debouncedKeyword, searchStatus, dynamicHeaders]);
 
-  // 페이지네이션 계산
-  const totalPages = Math.ceil(filteredMembers.length / itemsPerPage);
-  const paginatedMembers = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return filteredMembers.slice(startIndex, endIndex);
-  }, [filteredMembers, currentPage, itemsPerPage]);
+  // 실제 화면에 그릴 컬럼 (null이면 기본 3개, 아니면 사용자가 고른 것)
+  const activeColumns = visibleColumns ?? dynamicHeaders.slice(0, 3);
 
-  // 전체 선택 체크
-  const isAllSelected = paginatedMembers.length > 0 && paginatedMembers.every((m) => selectedIds.has(String(m.index)));
-  //const isSomeSelected = paginatedMembers.some((m) => selectedIds.has(String(m.index)));
+  // 컬럼 토글 함수
+  const toggleColumn = (header: string) => {
+    setVisibleColumns((prev) => {
+      const current = prev ?? dynamicHeaders.slice(0, 3);
 
-  // 전체 선택/해제
-  const handleSelectAll = () => {
-    if (isAllSelected) {
-      // 현재 페이지의 모든 항목 선택 해제
-      const newSelected = new Set(selectedIds);
-      paginatedMembers.forEach((m) => newSelected.delete(String(m.index)));
-      setSelectedIds(newSelected);
-    } else {
-      // 현재 페이지의 모든 항목 선택
-      const newSelected = new Set(selectedIds);
-      paginatedMembers.forEach((m) => newSelected.add(String(m.index)));
-      setSelectedIds(newSelected);
-    }
+      // 이미 체크되어 있어서 '해제(끄기)'를 시도하는 경우
+      if (current.includes(header)) {
+        // 현재 켜진 컬럼이 3개 이하라면 끄지 못하게 막습니다.
+        if (current.length <= 3) {
+          alert('최소 3개의 컬럼은 표시되어야 합니다.');
+          return current; // 변경 없이 기존 상태 그대로 반환
+        }
+        return current.filter((col) => col !== header);
+      }
+
+      // 체크되어 있지 않아서 '추가(켜기)'를 시도하는 경우
+      return [...current, header];
+    });
   };
 
-  // 개별 선택/해제
-  const handleSelectOne = (id: string) => {
-    const newSelected = new Set(selectedIds);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
+  // 정렬 토글 함수
+  const handleSort = (key: string) => {
+    setSortConfig((prev) => {
+      if (prev?.key === key) {
+        if (prev.direction === 'asc') return { key, direction: 'desc' };
+        return null; // 3번째 클릭 시 정렬 해제 (기본 상태)
+      }
+      return { key, direction: 'asc' }; // 처음 클릭 시 오름차순
+    });
+  };
+
+  // 필터링된 데이터를 기준으로 정렬 수행
+  const sortedMembers = useMemo(() => {
+    const sortableItems = [...filteredMembers];
+
+    if (sortConfig !== null) {
+      sortableItems.sort((a, b) => {
+        const aValue = String(a[sortConfig.key] ?? '');
+        const bValue = String(b[sortConfig.key] ?? '');
+
+        const compareResult = aValue.localeCompare(bValue, 'ko', { numeric: true });
+
+        // 오름차순(asc)이면 그대로, 내림차순(desc)이면 결과를 뒤집어줍니다(-).
+        return sortConfig.direction === 'asc' ? compareResult : -compareResult;
+      });
     }
+    return sortableItems;
+  }, [filteredMembers, sortConfig]);
+
+  // (페이지네이션 계산 로직은 기존과 완전히 동일하므로 생략하지 않고 유지)
+  const totalPages = Math.ceil(sortedMembers.length / itemsPerPage);
+  const paginatedMembers = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sortedMembers.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedMembers, currentPage, itemsPerPage]);
+
+  const isAllSelected = paginatedMembers.length > 0 && paginatedMembers.every((m) => selectedIds.has(String(m.index)));
+
+  const handleSelectAll = () => {
+    const newSelected = new Set(selectedIds);
+    if (isAllSelected) paginatedMembers.forEach((m) => newSelected.delete(String(m.index)));
+    else paginatedMembers.forEach((m) => newSelected.add(String(m.index)));
     setSelectedIds(newSelected);
   };
 
-  // 선택 삭제
+  const handleSelectOne = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) newSelected.delete(id);
+    else newSelected.add(id);
+    setSelectedIds(newSelected);
+  };
+
   const handleDeleteSelected = () => {
     if (selectedIds.size === 0) return;
     if (confirm(`선택한 ${selectedIds.size}명의 회원을 삭제하시겠습니까?`)) {
@@ -100,43 +164,32 @@ export default function MemberTable({ members, onDeleteMembers, onUpdateMemberSt
   };
 
   return (
-    <div className="h-full w-full rounded-xl border border-gray-200 bg-white shadow-lg flex flex-col overflow-hidden">
-      {/* 검색 영역 */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b bg-white">
+    <div className="h-full w-full flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+      {/* --- 검색 영역 --- */}
+      <div className="flex items-center gap-3 border-b bg-white px-6 py-3">
         <input
           type="text"
-          placeholder="이름 검색"
-          value={searchName}
+          placeholder="통합 검색 (이름, 전화번호 등)"
+          value={searchKeyword}
           onChange={(e) => {
-            setSearchName(e.target.value);
+            setSearchKeyword(e.target.value);
             setCurrentPage(1);
           }}
-          className="h-9 px-3 border rounded-md text-sm"
-        />
-
-        <input
-          type="text"
-          placeholder="전화번호 검색"
-          value={searchPhone}
-          onChange={(e) => {
-            setSearchPhone(e.target.value);
-            setCurrentPage(1);
-          }}
-          className="h-9 px-3 border rounded-md text-sm"
+          className="h-9 w-64 rounded-md border px-3 text-sm"
         />
 
         <Select
           value={searchStatus}
           onValueChange={(value) => {
-            setSearchStatus(value as MemberStatus | '전체');
+            setSearchStatus(value);
             setCurrentPage(1);
           }}
         >
-          <SelectTrigger className="w-32 h-9">
+          <SelectTrigger className="h-9 w-32">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="전체">전체</SelectItem>
+            <SelectItem value="전체">전체 상태</SelectItem>
             <SelectItem value="활동">활동</SelectItem>
             <SelectItem value="비활동">비활동</SelectItem>
           </SelectContent>
@@ -146,32 +199,50 @@ export default function MemberTable({ members, onDeleteMembers, onUpdateMemberSt
           variant="outline"
           size="sm"
           onClick={() => {
-            setSearchName('');
-            setSearchPhone('');
+            setSearchKeyword('');
             setSearchStatus('전체');
             setCurrentPage(1);
           }}
         >
           초기화
         </Button>
+
+        {/* 컬럼 설정 드롭다운 */}
+        <div className="relative ml-auto">
+          <Button variant="outline" size="sm" onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)} className="flex items-center gap-2">
+            <Settings2 className="h-4 w-4" />
+            컬럼 설정
+          </Button>
+
+          {isColumnMenuOpen && (
+            <div className="absolute right-0 top-full z-50 mt-2 w-48 rounded-md border border-gray-200 bg-white p-2 shadow-lg">
+              <div className="mb-2 border-b pb-2 px-2 text-xs font-semibold text-gray-500">표시할 항목 선택</div>
+              <div className="flex max-h-60 flex-col overflow-y-auto">
+                {dynamicHeaders.map((header) => (
+                  <label key={header} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-100">
+                    <Checkbox checked={activeColumns.includes(header)} onCheckedChange={() => toggleColumn(header)} />
+                    <span className="text-sm text-gray-700">{header}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* 헤더 */}
-      <div className="flex items-center justify-between px-6 py-3 border-b bg-gradient-to-r from-gray-50 to-gray-100">
+      {/* --- 액션 헤더 (삭제 등) --- */}
+      <div className="flex items-center justify-between border-b bg-gradient-to-r from-gray-50 to-gray-100 px-6 py-3">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <Checkbox checked={isAllSelected} onCheckedChange={handleSelectAll} aria-label="전체 선택" />
+            <Checkbox checked={isAllSelected} onCheckedChange={handleSelectAll} />
             <span className="text-sm text-gray-600">{selectedIds.size > 0 ? `${selectedIds.size}명 선택됨` : '전체 선택'}</span>
           </div>
-
           {selectedIds.size > 0 && (
             <Button variant="destructive" size="sm" onClick={handleDeleteSelected} className="gap-2">
-              <Trash2 className="w-4 h-4" />
-              선택 삭제
+              <Trash2 className="h-4 w-4" /> 선택 삭제
             </Button>
           )}
         </div>
-
         <div className="flex items-center gap-2">
           <Select value={itemsPerPage.toString()} onValueChange={handleItemsPerPageChange}>
             <SelectTrigger className="w-20">
@@ -186,65 +257,89 @@ export default function MemberTable({ members, onDeleteMembers, onUpdateMemberSt
         </div>
       </div>
 
-      {/* 테이블 헤더 */}
-      <div className="flex items-center font-semibold px-6 h-12 border-b bg-gray-50">
-        <div className="w-12"></div>
-        <div className="flex-1 flex items-center gap-2 text-gray-700">
-          <User className="w-4 h-4" />
-          <span>이름</span>
-        </div>
-        <div className="flex-1 flex items-center gap-2 text-gray-700">
-          <Phone className="w-4 h-4" />
-          <span>전화번호</span>
-        </div>
+      {/* --- 동적 테이블 헤더 --- */}
+      <div className="flex h-12 items-center border-b bg-gray-50 px-6 font-semibold">
+        <div className="w-12"></div> {/* 체크박스용 여백 */}
+        {/* 엑셀에서 뽑아낸 컬럼들을 가로로 뿌려줌 */}
+        {dynamicHeaders
+          .filter((header) => activeColumns.includes(header))
+          .map((header) => (
+            <div key={header} onClick={() => handleSort(header)} className="flex-1 flex cursor-pointer items-center gap-2 px-2 text-gray-700 hover:text-blue-600 select-none group">
+              <span className="truncate">{header}</span>
+
+              {/* 현재 정렬 상태에 따라 화살표 표시 */}
+              <div className="flex items-center text-gray-400">
+                {sortConfig?.key === header ? sortConfig.direction === 'asc' ? <ArrowUp className="h-4 w-4 text-blue-600" /> : <ArrowDown className="h-4 w-4 text-blue-600" /> : <ArrowUpDown className="h-4 w-4 opacity-0 group-hover:opacity-50" />}
+              </div>
+            </div>
+          ))}
         <div className="w-32 text-center text-gray-700">상태</div>
-        <div className="w-24 text-center text-gray-700">작업</div>
+        <div className="w-20 text-center text-gray-700">SMS</div>
+        <div className="w-20 text-center text-gray-700">삭제</div>
       </div>
 
-      {/* 리스트 */}
+      {/* --- 테이블 리스트 --- */}
       <div className="flex-1 overflow-y-auto">
         {members.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-            <User className="w-12 h-12 mb-3 opacity-20" />
-            <p className="text-sm">등록된 회원이 없습니다</p>
-            <p className="text-xs mt-1">엑셀 파일을 업로드하여 회원을 추가하세요</p>
-          </div>
-        ) : paginatedMembers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-            <p className="text-sm">이 페이지에 표시할 회원이 없습니다</p>
+          <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+            <p>등록된 회원이 없습니다.</p>
           </div>
         ) : (
           <div>
-            {paginatedMembers.map((m, index) => {
-              const isEven = index % 2 === 0;
+            {paginatedMembers.map((m) => {
               const isSelected = selectedIds.has(String(m.index));
-
               return (
-                <div key={String(m.index)} className={`flex items-center px-6 h-16 border-b border-gray-100 transition-all duration-200 hover:bg-blue-50 cursor-pointer group ${isSelected ? 'bg-blue-50' : isEven ? 'bg-white' : 'bg-gray-50/50'}`}>
-                  <div className="w-12 flex items-center">
+                <div key={String(m.index)} className={`group flex h-16 cursor-pointer items-center border-b border-gray-100 px-6 transition-all duration-200 hover:bg-blue-50 ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
+                  <div className="flex w-12 items-center">
                     <Checkbox checked={isSelected} onCheckedChange={() => handleSelectOne(String(m.index))} />
                   </div>
 
-                  <div className="flex-1 font-medium text-gray-900 group-hover:text-blue-700 transition-colors">{m.name}</div>
+                  {/* 동적 컬럼 데이터 렌더링 */}
+                  {dynamicHeaders
+                    .filter((header) => activeColumns.includes(header))
+                    .map((header) => (
+                      <div key={header} className="flex-1 truncate px-2 text-sm text-gray-700">
+                        {m[header] || '-'}
+                      </div>
+                    ))}
 
-                  <div className="flex-1 text-gray-600 font-mono text-sm">{m.phone}</div>
-
-                  <div className="w-32 flex justify-center">
-                    <StatusSelect status={m.status} onChange={(newStatus) => onUpdateMemberStatus(String(m.index), newStatus as MemberStatus)} />
+                  {/* 상태 선택 및 종료일 디데이 뱃지 */}
+                  <div className="flex w-32 justify-center">
+                    <StatusDisplay status={String(m.status)} endDate={m['종료일'] ? String(m['종료일']) : undefined} />
                   </div>
 
-                  <div className="w-24 flex justify-center">
+                  {/* 개별회원에게 SMS 발송을 한다. */}
+                  <div className="flex w-20 justify-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-blue-500 hover:bg-blue-50 hover:text-blue-600"
+                      onClick={() => {
+                        const phoneNumber = String(m['전화번호'] || m.phone || '');
+                        if (!phoneNumber) {
+                          alert('등록된 전화번호가 없습니다.');
+                          return;
+                        }
+
+                        // window.location.href = `sms:${phoneNumber}`;
+                      }}
+                      title="SMS 발송"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  {/* 삭제 버튼 */}
+                  <div className="flex w-20 justify-center">
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => {
-                        if (confirm(`${m.name}님을 삭제하시겠습니까?`)) {
-                          onDeleteMembers([String(m.index)]);
-                        }
+                        if (confirm(`해당 회원을 삭제하시겠습니까?`)) onDeleteMembers([String(m.index)]);
                       }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="transition-opacity"
                     >
-                      <Trash2 className="w-4 h-4 text-red-500" />
+                      <Trash2 className="h-4 w-4 text-red-500" />
                     </Button>
                   </div>
                 </div>
@@ -253,7 +348,6 @@ export default function MemberTable({ members, onDeleteMembers, onUpdateMemberSt
           </div>
         )}
       </div>
-
       {/* 페이지네이션 */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
@@ -296,41 +390,54 @@ export default function MemberTable({ members, onDeleteMembers, onUpdateMemberSt
   );
 }
 
-// 상태 선택 컴포넌트
-const StatusSelect = ({ status, onChange }: { status: string; onChange: (status: string) => void }) => {
+// ----------------------------------------------------
+// 상태 및 날짜 표시 컴포넌트
+// ----------------------------------------------------
+const StatusDisplay = ({ status, endDate }: { status: string; endDate?: string }) => {
+  // 1. 엑셀에 '종료일' 컬럼이 아예 없거나 값이 없으면 기본 상태를 표시
+  if (!endDate || endDate === '-' || endDate.trim() === '') {
+    return <StatusBadge text={status} colorClass={status === '비활동' ? 'from-gray-400 to-gray-500' : 'from-green-500 to-emerald-500'} />;
+  }
+
+  // 2. '종료일'이 있을 경우 날짜 계산 로직
+  const targetDate = new Date(endDate);
+  if (isNaN(targetDate.getTime())) {
+    return <StatusBadge text={status} colorClass="from-gray-400 to-gray-500" />;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  targetDate.setHours(0, 0, 0, 0);
+
+  const diffTime = targetDate.getTime() - today.getTime();
+  const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); // 디데이 계산
+
+  // 3. 요구사항에 맞춘 자동 상태 분기 (글자와 색상 결정)
+  let resultText = '활동';
+  let colorClass = '';
+
+  if (daysLeft < 0) {
+    resultText = '비활동'; // 오늘 지났으면 비활동
+    colorClass = 'from-gray-400 to-gray-500'; // 회색
+  } else if (daysLeft <= 7) {
+    resultText = '활동';
+    colorClass = 'from-red-500 to-red-600'; // 1주일 이하: 빨간색
+  } else if (daysLeft <= 30) {
+    resultText = '활동';
+    colorClass = 'from-blue-500 to-blue-600'; // 한달 이하: 파란색
+  } else {
+    resultText = '활동';
+    colorClass = 'from-green-500 to-emerald-500'; // 한달 이상 여유: 초록색
+  }
+
   return (
-    <Select value={status} onValueChange={onChange}>
-      <SelectTrigger className="w-25 h-7 border-0 bg-transparent">
-        <SelectValue>
-          <StatusBadge status={status} />
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="활동">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-green-500" />
-            활동
-          </div>
-        </SelectItem>
-        <SelectItem value="비활동">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-gray-400" />
-            비활동
-          </div>
-        </SelectItem>
-      </SelectContent>
-    </Select>
+    <div className="flex flex-col items-center gap-1">
+      <StatusBadge text={resultText} colorClass={colorClass} />
+      {/* (선택) 며칠 남았는지 작게 보여주면 관리하기 엄청 편합니다! */}
+      {daysLeft >= 0 && <span className="text-[10px] text-gray-400 font-mono">D-{daysLeft}</span>}
+    </div>
   );
 };
-
-const StatusBadge = ({ status }: { status: string }) => {
-  if (status === '활동') {
-    return <Badge className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 border-0">활동</Badge>;
-  }
-
-  if (status === '비활동') {
-    return <Badge className="bg-gradient-to-r from-gray-400 to-gray-500 hover:from-gray-500 hover:to-gray-600 border-0">비활동</Badge>;
-  }
-
-  return <Badge variant="outline">{status}</Badge>;
+const StatusBadge = ({ text, colorClass }: { text: string; colorClass: string }) => {
+  return <Badge className={`border-0 bg-gradient-to-r ${colorClass} text-white hover:${colorClass}`}>{text}</Badge>;
 };

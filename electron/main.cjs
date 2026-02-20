@@ -27,6 +27,8 @@ function createWindow() {
       nodeIntegration: false,
     },
     autoHideMenuBar: true,
+    minWidth: 800, // 이 너비 이하로는 안 줄어듦
+    minHeight: 800, // 이 높이 이하로는 안 줄어듦
   });
 
   // 개발자도구가 안보이기에 개발중일때는 메뉴를 view처리
@@ -47,28 +49,31 @@ app.whenReady().then(() => {
   createWindow();
 });
 
-ipcMain.handle('save-members', (_, newMembers) => {
+// 1. 엑셀 업로드용 (기존 로직 유지, 이름만 변경)
+ipcMain.handle('add-members', (_, newMembers) => {
   if (!store) initStore();
-
-  const existingMembers = store.get('members', []);
+  const existingMembers = store.get('members') || [];
   const lastIndex = store.get('membersLastIndex', 0);
 
   let currentIndex = lastIndex;
-
   const membersWithIndex = newMembers.map((member) => {
     currentIndex += 1;
-    return {
-      ...member,
-      index: currentIndex,
-    };
+    return { ...member, index: currentIndex };
   });
 
   const updatedMembers = [...existingMembers, ...membersWithIndex];
-
   store.set('members', updatedMembers);
   store.set('membersLastIndex', currentIndex);
 
-  return membersWithIndex;
+  return updatedMembers; // 프론트엔드 동기화를 위해 전체 배열 반환
+});
+
+// 2. 삭제 및 상태 변경용 (완전히 덮어쓰기)
+ipcMain.handle('overwrite-members', (_, updatedMembers) => {
+  if (!store) initStore();
+  // 이어붙이지 않고, 넘어온 배열로 데이터를 통째로 교체
+  store.set('members', updatedMembers);
+  return updatedMembers;
 });
 
 ipcMain.handle('load-members', () => {
