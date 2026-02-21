@@ -49,38 +49,81 @@ app.whenReady().then(() => {
   createWindow();
 });
 
-// 1. 엑셀 업로드용 (기존 로직 유지, 이름만 변경)
-ipcMain.handle('add-members', (_, newMembers) => {
-  if (!store) initStore();
-  const existingMembers = store.get('members') || [];
-  const lastIndex = store.get('membersLastIndex', 0);
+ipcMain.handle('add-members', (event, newMembers) => {
+  try {
+    if (!store) initStore(); // store 초기화 (기존 코드 유지)
 
-  let currentIndex = lastIndex;
-  const membersWithIndex = newMembers.map((member) => {
-    currentIndex += 1;
-    return { ...member, index: currentIndex };
-  });
+    // 1. 기존 데이터 가져오기 (비어있으면 빈 객체)
+    const rawMembers = store.get('members') || {};
+    let currentMembers = {};
 
-  const updatedMembers = [...existingMembers, ...membersWithIndex];
-  store.set('members', updatedMembers);
-  store.set('membersLastIndex', currentIndex);
+    // 2. 만약 기존 데이터가 배열이라면 (null 방어 로직 추가)
+    if (Array.isArray(rawMembers)) {
+      rawMembers.forEach((m) => {
+        // m이 null이 아니고, 안에 index가 있을 때만
+        if (m && m.index !== undefined) {
+          currentMembers[m.index] = m;
+        }
+      });
+    } else {
+      currentMembers = typeof rawMembers === 'object' ? rawMembers : {};
+    }
 
-  return updatedMembers; // 프론트엔드 동기화를 위해 전체 배열 반환
+    let lastIndex = store.get('membersLastIndex') || 0;
+
+    // 3. 엑셀에서 넘어온 새 데이터 추가
+    if (Array.isArray(newMembers)) {
+      newMembers.forEach((member) => {
+        if (member) {
+          // 엑셀 빈 줄 무시
+          lastIndex++;
+          currentMembers[lastIndex] = { ...member, index: lastIndex };
+        }
+      });
+    }
+
+    // 4. 안전하게 저장
+    store.set('members', currentMembers);
+    store.set('membersLastIndex', lastIndex);
+
+    return true; // 성공적으로 끝나면 true 반환
+  } catch (error) {
+    console.error('add-members에서 치명적 에러 발생:', error);
+    throw error; // 에러를 삼키지 않고 프론트로 던져서 원인을 파악하게 함
+  }
 });
 
-// 2. 삭제 및 상태 변경용 (완전히 덮어쓰기)
-ipcMain.handle('overwrite-members', (_, updatedMembers) => {
+ipcMain.handle('delete-members', (event, items) => {
+  console.log('삭제 요청 도착! 데이터:', items);
+
   if (!store) initStore();
-  // 이어붙이지 않고, 넘어온 배열로 데이터를 통째로 교체
-  store.set('members', updatedMembers);
-  return updatedMembers;
+  const currentMembers = store.get('members') || {};
+
+  // 넘어온 배열을 돌면서 삭제 처리
+  items.forEach((item) => {
+    // item이 객체면 안의 index를 뽑아내고, 그냥 숫자/문자면 그대로 씁니다.
+    const targetId = typeof item === 'object' && item !== null ? item.index : item;
+
+    delete currentMembers[String(targetId)];
+  });
+
+  store.set('members', currentMembers);
+
+  const dataArray = Object.values(currentMembers);
+  return dataArray.sort((a, b) => b.index - a.index);
 });
 
 ipcMain.handle('load-members', () => {
   if (!store) initStore();
-  const data = store.get('members', []);
 
-  return [...data].sort((a, b) => b.index - a.index) || [];
+  // 1. 기본값을 빈 객체({})로 가져옵니다.
+  const rawData = store.get('members', {});
+
+  // 2. 객체에 담긴 값들만 뽑아서(Object.values) 배열로
+  const dataArray = Array.isArray(rawData) ? rawData : Object.values(rawData);
+
+  // 3. index 역순(최신순)으로 정렬해서 프론트로
+  return dataArray.sort((a, b) => b.index - a.index);
 });
 
 ipcMain.handle('send-sms', async (_, payload) => {
