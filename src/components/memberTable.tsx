@@ -7,14 +7,20 @@ import { Button } from './ui/button';
 import { Checkbox } from './ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
+type FilterType = '전체' | '활동' | '비활동' | '만료임박';
+
 interface Props {
   members: Member[]; // 동적 객체 배열
   onDeleteMembers: (ids: string[]) => void;
+  activeFilter: FilterType;
+  onFilterChange: (filter: FilterType) => void;
 }
 
-export default function MemberTable({ members, onDeleteMembers }: Props) {
+export default function MemberTable({ members, onDeleteMembers, activeFilter, onFilterChange }: Props) {
   const [searchKeyword, setSearchKeyword] = useState(''); // 이름/전화번호 대신 통합 검색으로 변경
-  const [searchStatus, setSearchStatus] = useState<string>('전체');
+
+  // searchStatus는 activeFilter와 동기화 (만료임박은 Select에서 '전체'로 표시)
+  const searchStatus = activeFilter === '만료임박' ? '만료임박' : activeFilter;
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
@@ -46,24 +52,28 @@ export default function MemberTable({ members, onDeleteMembers }: Props) {
             .toLowerCase()
             .includes(debouncedKeyword.toLowerCase()),
         );
-      let calculatedStatus = '활동'; // 기본값
+
       const endDate = m['종료일'] ? String(m['종료일']) : null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let diffDays: number | null = null;
+      let calculatedStatus = '활동';
 
       if (endDate) {
         const targetDate = new Date(endDate);
         if (!isNaN(targetDate.getTime())) {
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
           targetDate.setHours(0, 0, 0, 0);
-
-          // 오늘 날짜보다 이전이면 '비활동'으로 간주
-          if (targetDate.getTime() < today.getTime()) {
-            calculatedStatus = '비활동';
-          }
+          diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) calculatedStatus = '비활동';
         }
       }
 
-      const matchStatus = searchStatus === '전체' ? true : calculatedStatus === searchStatus;
+      let matchStatus = true;
+      if (searchStatus === '활동') matchStatus = calculatedStatus === '활동';
+      else if (searchStatus === '비활동') matchStatus = calculatedStatus === '비활동';
+      else if (searchStatus === '만료임박') matchStatus = diffDays !== null && diffDays >= 0 && diffDays <= 30;
+      // '전체'면 matchStatus = true
 
       return matchKeyword && matchStatus;
     });
@@ -179,19 +189,20 @@ export default function MemberTable({ members, onDeleteMembers }: Props) {
         />
 
         <Select
-          value={searchStatus}
+          value={searchStatus === '만료임박' ? '만료임박' : searchStatus}
           onValueChange={(value) => {
-            setSearchStatus(value);
+            onFilterChange(value as FilterType);
             setCurrentPage(1);
           }}
         >
-          <SelectTrigger className="h-9 w-32">
+          <SelectTrigger className="h-9 w-36">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="전체">전체 상태</SelectItem>
             <SelectItem value="활동">활동</SelectItem>
             <SelectItem value="비활동">비활동</SelectItem>
+            <SelectItem value="만료임박">만료임박</SelectItem>
           </SelectContent>
         </Select>
 
@@ -200,7 +211,7 @@ export default function MemberTable({ members, onDeleteMembers }: Props) {
           size="sm"
           onClick={() => {
             setSearchKeyword('');
-            setSearchStatus('전체');
+            onFilterChange('전체');
             setCurrentPage(1);
           }}
         >

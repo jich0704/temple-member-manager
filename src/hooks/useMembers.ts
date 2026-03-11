@@ -55,7 +55,7 @@ export function useMembers() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { active, inactive } = members.reduce(
+    const { active, inactive, expiringSoon } = members.reduce(
       (acc, m) => {
         const endDateValue = m['종료일'];
         let isActive = true;
@@ -64,8 +64,12 @@ export function useMembers() {
           const targetDate = new Date(String(endDateValue));
           if (!isNaN(targetDate.getTime())) {
             targetDate.setHours(0, 0, 0, 0);
-            if (targetDate.getTime() < today.getTime()) {
+            const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays < 0) {
               isActive = false;
+            } else if (diffDays <= 30) {
+              // 활동 중이면서 30일 이내 만료 예정
+              acc.expiringSoon += 1;
             }
           }
         }
@@ -78,10 +82,10 @@ export function useMembers() {
 
         return acc;
       },
-      { active: 0, inactive: 0 },
+      { active: 0, inactive: 0, expiringSoon: 0 },
     );
 
-    return { total, active, inactive };
+    return { total, active, inactive, expiringSoon };
   }, [members]);
 
   return {

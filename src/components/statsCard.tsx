@@ -7,11 +7,16 @@ interface StatsCardProps {
   icon: LucideIcon;
   gradient: string;
   iconColor: string;
+  onClick?: () => void;
+  isActive?: boolean;
 }
 
-export default function StatsCard({ title, value, icon: Icon, gradient, iconColor }: StatsCardProps) {
+export default function StatsCard({ title, value, icon: Icon, gradient, iconColor, onClick, isActive }: StatsCardProps) {
   return (
-    <Card className="relative overflow-hidden">
+    <Card
+      className={`relative overflow-hidden transition-all duration-200 ${onClick ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5' : ''} ${isActive ? 'ring-2 ring-offset-2 ring-slate-500 shadow-md' : ''}`}
+      onClick={onClick}
+    >
       <div className="p-6">
         <div className="flex items-center justify-between">
           <div>
