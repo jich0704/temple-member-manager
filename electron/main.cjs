@@ -3,6 +3,7 @@ const path = require('path');
 const Store = require('electron-store').default;
 
 let store;
+let settingsStore;
 
 const initStore = () => {
   store = new Store({
@@ -11,7 +12,21 @@ const initStore = () => {
     fileExtension: 'json',
   });
 
+  settingsStore = new Store({
+    name: 'settings',
+    cwd: app.getPath('userData'),
+    fileExtension: 'json',
+    defaults: {
+      warningDays: 30,
+      criticalDays: 7,
+      warningColor: 'from-blue-500 to-blue-600',
+      criticalColor: 'from-red-500 to-red-600',
+      safeColor: 'from-green-500 to-emerald-500',
+    }
+  });
+
   console.log('Store path:', store.path);
+  console.log('Settings path:', settingsStore.path);
 };
 
 console.log('dirname:', __dirname);
@@ -130,4 +145,15 @@ ipcMain.handle('send-sms', async (_, payload) => {
   console.log('SMS 발송:', payload);
   // 실제 API 연동 위치
   return { success: true };
+});
+
+ipcMain.handle('load-settings', () => {
+  if (!settingsStore) initStore();
+  return settingsStore.store;
+});
+
+ipcMain.handle('save-settings', (_, newSettings) => {
+  if (!settingsStore) initStore();
+  settingsStore.set(newSettings);
+  return true;
 });

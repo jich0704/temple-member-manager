@@ -50,3 +50,33 @@ export const parseExcel = (file: File): Promise<Member[]> => {
     reader.readAsArrayBuffer(file);
   });
 };
+
+export const exportToExcel = (members: Member[]) => {
+  if (members.length === 0) {
+    alert('내보낼 데이터가 없습니다.');
+    return;
+  }
+
+  // 내보낼 데이터 가공 (관리용 필드 제외 및 필드명 정리)
+  const exportData = members.map((member) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { index, status, name, phone, ...rest } = member;
+    
+    // 한국어 필드명 우선 순위 및 정리
+    return {
+      이름: name || member['이름'] || '',
+      전화번호: phone || member['전화번호'] || '',
+      상태: status || member['상태'] || '',
+      ...rest
+    };
+  });
+
+  // 워크시트 생성
+  const worksheet = XLSX.utils.json_to_sheet(exportData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '회원목록');
+
+  // 파일 생성 및 다운로드
+  const today = new Date().toISOString().split('T')[0];
+  XLSX.writeFile(workbook, `사찰회원_백업_${today}.xlsx`);
+};

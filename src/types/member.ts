@@ -16,3 +16,11 @@ export interface SendSMSPayload {
 export interface SendSMSResponse {
   success: boolean;
 }
+
+export interface Settings {
+  warningDays: number;
+  criticalDays: number;
+  warningColor: string;
+  criticalColor: string;
+  safeColor: string;
+}

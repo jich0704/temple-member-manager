@@ -1,4 +1,4 @@
-import { Award, AlertTriangle, ChevronDown, ChevronUp, TrendingUp, Users } from 'lucide-react';
+import { AlertTriangle, Award, ChevronDown, ChevronUp, TrendingUp, Users } from 'lucide-react';
 import { useState } from 'react';
 import StatsCard from './statsCard';
 import { Button } from './ui/button';
@@ -70,7 +70,7 @@ export default function StatsSection({ stats, activeFilter, onFilterChange }: St
             isActive={activeFilter === '비활동'}
           />
           <StatsCard
-            title="만료 임박 (30일)"
+            title="만료 임박"
             value={stats.expiringSoon}
             icon={AlertTriangle}
             gradient="bg-gradient-to-br from-orange-400 to-red-500"

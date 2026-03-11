@@ -7,7 +7,7 @@ import type { Member } from '../types/member';
 export function useSMS() {
   const [isSending, setIsSending] = useState(false);
 
-  const sendSMS = async (targets: Member[], message: string) => {
+  const sendSMS = async ({ targets, message }: { targets: Member[]; message: string }) => {
     if (!targets.length) return;
 
     setIsSending(true);
