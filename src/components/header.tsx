@@ -2,15 +2,17 @@ import { useState, useRef, useEffect } from 'react';
 import { Send, Upload, Settings as SettingsIcon, ShieldCheck, CalendarClock, X, Check } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { ConfirmModal } from './ui/confirmModal';
 import type { Settings } from '../types/member';
 
 interface Props {
-  onUpload: (file: File) => void;
+  onUpload: (file: File, mode: 'append' | 'overwrite') => void;
   onSend: () => void;
   isSending: boolean;
   onExportExcel: () => void;
   settings: Settings;
   onUpdateSettings: (settings: Settings) => void;
+  hasMembers: boolean;
 }
 
 const colorOptions = [
@@ -24,10 +26,12 @@ const colorOptions = [
   { name: '그레이', value: 'from-slate-500 to-slate-600' },
 ];
 
-export default function Header({ onUpload, onSend, isSending, onExportExcel, settings, onUpdateSettings }: Props) {
+export default function Header({ onUpload, onSend, isSending, onExportExcel, settings, onUpdateSettings, hasMembers }: Props) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [editSettings, setEditSettings] = useState<Settings>(settings);
+  const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
 
   // 현재 설정값을 편집용 상태에 동기화
@@ -48,9 +52,25 @@ export default function Header({ onUpload, onSend, isSending, onExportExcel, set
 
   const handleBackupClick = () => {
     setIsSettingsOpen(false);
-    if (confirm('현재 회원목록을 백업하시겠습니까?')) {
-      onExportExcel();
+    if (!hasMembers) {
+      setModalState({
+        isOpen: true,
+        title: '알림',
+        message: '내보낼 데이터가 없습니다.',
+        isAlert: true,
+        onConfirm: () => setModalState(null)
+      });
+      return;
     }
+    setModalState({
+      isOpen: true,
+      title: '회원 백업',
+      message: '현재 회원목록을 엑셀 파일로 다운로드 하시겠습니까?',
+      onConfirm: () => {
+        onExportExcel();
+        setModalState(null);
+      }
+    });
   };
 
   const handleSaveSettings = () => {
@@ -75,7 +95,8 @@ export default function Header({ onUpload, onSend, isSending, onExportExcel, set
             hidden
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) onUpload(file);
+              if (file) setPendingFile(file);
+              e.target.value = ''; // 같은 파일 재선택 가능하게 리셋
             }}
           />
           <Button variant="outline" className="gap-2 border-blue-200 hover:bg-blue-50 hover:border-blue-300" asChild>
@@ -226,6 +247,51 @@ export default function Header({ onUpload, onSend, isSending, onExportExcel, set
           </div>
         </div>
       )}
+
+      {/* 업로드 방식 선택 모달 */}
+      {pendingFile && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in slide-in-from-bottom-4 duration-300">
+            <div className="px-6 py-4 border-b flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-blue-600" />
+                <h2 className="text-lg font-bold text-slate-800">엑셀 업로드 방식 선택</h2>
+              </div>
+              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8" onClick={() => setPendingFile(null)}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            <div className="p-6 text-sm text-slate-600">
+              선택한 파일: <span className="font-semibold text-slate-800">{pendingFile.name}</span>
+              <br /><br />
+              이 파일의 데이터를 기존 목록에 <strong>이어서 누적</strong>하시겠습니까, 아니면 기존 데이터를 모두 <strong>초기화하고 새로 구성</strong>하시겠습니까?
+            </div>
+            <div className="px-6 py-4 bg-slate-50 flex items-center justify-end gap-3">
+              <Button 
+                variant="outline" 
+                className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" 
+                onClick={() => { onUpload(pendingFile, 'overwrite'); setPendingFile(null); }}
+              >
+                초기화 후 새로 올리기
+              </Button>
+              <Button 
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={() => { onUpload(pendingFile, 'append'); setPendingFile(null); }}
+              >
+                기존 목록에 누적하기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmModal
+        isOpen={modalState?.isOpen || false}
+        title={modalState?.title || ''}
+        message={modalState?.message || ''}
+        onConfirm={modalState?.onConfirm || (() => {})}
+        onCancel={() => setModalState(null)}
+      />
     </div>
   );
 }

@@ -11,6 +11,7 @@ import {
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
+import { ConfirmModal } from './ui/confirmModal';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -37,11 +38,12 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: '인등번호', direction: 'desc' });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
 
   // 컬럼 설정 (기본적으로 모든 키를 표시하되 관리에 필요한 이름, 전화번호 우선)
   // 실제 엑셀 데이터의 키 값들을 동적으로 추출
   const dynamicHeaders = useMemo(() => {
-    if (members.length === 0) return [];
+    if (!members || members.length === 0) return [];
     // 모든 멤버의 키를 합쳐서 중복 제거 (엑셀 데이터의 원래 순서가 유지됨)
     const allKeys = new Set<string>();
     members.forEach((m) => {
@@ -61,7 +63,7 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
   ]);
 
   // 필터링 (activeFilter는 대시보드에서 이미 처리되어 내려오지만 추가적인 검색 등이 있다면 여기서 처리 가능)
-  const filteredMembers = members; 
+  const filteredMembers = members || []; 
 
   const handleSort = (key: string) => {
     setSortConfig((prev) => {
@@ -115,10 +117,16 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
 
   const handleDeleteSelected = () => {
     if (selectedIds.size === 0) return;
-    if (confirm(`선택한 ${selectedIds.size}명의 회원을 삭제하시겠습니까?`)) {
-      onDeleteMembers(Array.from(selectedIds));
-      setSelectedIds(new Set());
-    }
+    setModalState({
+      isOpen: true,
+      title: '회원 단체 삭제',
+      message: `선택한 ${selectedIds.size}명의 회원을 삭제하시겠습니까?`,
+      onConfirm: () => {
+        onDeleteMembers(Array.from(selectedIds));
+        setSelectedIds(new Set());
+        setModalState(null);
+      }
+    });
   };
 
   const handlePageChange = (page: number) => {
@@ -217,7 +225,7 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
             <div className="w-20 shrink-0 flex justify-center text-gray-700">삭제</div>
           </div>
 
-          {members.length === 0 ? (
+          {(!members || members.length === 0) ? (
           <div className="flex h-[calc(100%-48px)] flex-col items-center justify-center text-muted-foreground bg-white">
             <p className="mt-20">등록된 회원이 없습니다.</p>
           </div>
@@ -265,9 +273,15 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
                       className="h-8 w-8 text-red-400 hover:bg-red-50 hover:text-red-500"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm('이 회원을 삭제하시겠습니까?')) {
-                          onDeleteMembers([String(m.index)]);
-                        }
+                        setModalState({
+                          isOpen: true,
+                          title: '회원 삭제',
+                          message: '이 회원을 삭제하시겠습니까?',
+                          onConfirm: () => {
+                            onDeleteMembers([String(m.index)]);
+                            setModalState(null);
+                          }
+                        });
                       }}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -317,6 +331,14 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={modalState?.isOpen || false}
+        title={modalState?.title || ''}
+        message={modalState?.message || ''}
+        onConfirm={modalState?.onConfirm || (() => {})}
+        onCancel={() => setModalState(null)}
+      />
     </div>
   );
 }

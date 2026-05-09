@@ -66,7 +66,6 @@ export const parseExcel = (file: File): Promise<Member[]> => {
 
 export const exportToExcel = (members: Member[]) => {
   if (members.length === 0) {
-    alert('내보낼 데이터가 없습니다.');
     return;
   }
 

@@ -38,10 +38,10 @@ export function useMembers() {
   }, []);
 
   // 엑셀 업로드 처리
-  const handleUpload = useCallback(async (file: File) => {
+  const handleUpload = useCallback(async (file: File, mode: 'append' | 'overwrite' = 'append') => {
     try {
       const parsed = await parseExcel(file);
-      await window.api!.addMembers(parsed);
+      await window.api!.addMembers({ data: parsed, mode });
 
       // 최신 데이터를 다시 불러와서 화면에 반영
       const saved = await window.api!.loadMembers();

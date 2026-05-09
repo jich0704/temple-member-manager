@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import Header from './components/header';
 import StatsSection from './components/statsSection';
 import MemberTable from './components/memberTable';
+import { ConfirmModal } from './components/ui/confirmModal';
 import { useMembers } from './hooks/useMembers';
 import { useSMS } from './hooks/useSms';
 
@@ -12,22 +13,34 @@ const Dashboard = () => {
   const { members, stats, handleUpload, handleDeleteMembers, handleExportExcel, settings, handleUpdateSettings } = useMembers();
   const { sendSMS, isSending } = useSMS();
   const [activeFilter, setActiveFilter] = useState<FilterType>('전체');
+  const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; isAlert: boolean; onConfirm: () => void } | null>(null);
 
   // 실제 SMS 발송 로직 (useSMS 훅과 연동)
   const handleSend = () => {
-    // 1. 현재 필터링된 멤버들만 대상으로 보낼지, 전체를 대상으로 보낼지 등에 대한 정책 필요
-    // 일단 여기서는 현재 화면에 보이는(필터링된) 리스트를 대상으로 보낸다고 가정
     if (filteredMembers.length === 0) {
-      alert('발송할 대상이 없습니다.');
+      setModalState({
+        isOpen: true,
+        title: '알림',
+        message: '발송할 대상이 없습니다.',
+        isAlert: true,
+        onConfirm: () => setModalState(null),
+      });
       return;
     }
 
-    if (confirm(`${filteredMembers.length}명의 회원에게 문자를 발송하시겠습니까?`)) {
-      sendSMS({
-        targets: filteredMembers,
-        message: '안녕하세요, 사찰에서 안내드립니다.',
-      });
-    }
+    setModalState({
+      isOpen: true,
+      title: 'SMS 단체 발송',
+      message: `${filteredMembers.length}명의 회원에게 문자를 발송하시겠습니까?`,
+      isAlert: false,
+      onConfirm: () => {
+        sendSMS({
+          targets: filteredMembers,
+          message: '안녕하세요, 사찰에서 안내드립니다.',
+        });
+        setModalState(null);
+      },
+    });
   };
 
   // 필터링 로직
@@ -80,6 +93,7 @@ const Dashboard = () => {
             onExportExcel={handleExportExcel}
             settings={settings}
             onUpdateSettings={handleUpdateSettings}
+            hasMembers={members.length > 0}
           />
         </div>
 
@@ -99,6 +113,15 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={modalState?.isOpen || false}
+        title={modalState?.title || ''}
+        message={modalState?.message || ''}
+        isAlert={modalState?.isAlert}
+        onConfirm={modalState?.onConfirm || (() => {})}
+        onCancel={() => setModalState(null)}
+      />
     </div>
   );
 };

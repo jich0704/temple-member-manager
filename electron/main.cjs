@@ -64,9 +64,26 @@ app.whenReady().then(() => {
   createWindow();
 });
 
-ipcMain.handle('add-members', (event, newMembers) => {
+ipcMain.handle('add-members', (event, payload) => {
   try {
     if (!store) initStore(); // store 초기화 (기존 코드 유지)
+
+    let newMembers = [];
+    let mode = 'append';
+
+    // 기존 배열 호환 및 객체 파라미터 분기
+    if (Array.isArray(payload)) {
+      newMembers = payload;
+    } else if (payload && typeof payload === 'object') {
+      newMembers = payload.data || [];
+      mode = payload.mode || 'append';
+    }
+
+    if (mode === 'overwrite') {
+      // 덮어쓰기 모드면 기존 데이터 싹 날림
+      store.set('members', {});
+      store.set('membersLastIndex', 0);
+    }
 
     // 1. 기존 데이터 가져오기 (비어있으면 빈 객체)
     const rawMembers = store.get('members') || {};
@@ -90,9 +107,30 @@ ipcMain.handle('add-members', (event, newMembers) => {
     if (Array.isArray(newMembers)) {
       newMembers.forEach((member) => {
         if (member) {
-          // 엑셀 빈 줄 무시
-          lastIndex++;
-          currentMembers[lastIndex] = { ...member, index: lastIndex };
+          let targetIndex = null;
+
+          // 누적 모드일 경우 신도번호를 기준으로 중복 검색
+          if (mode === 'append') {
+            const newId = member['신도번호'] ? String(member['신도번호']).trim() : '';
+            if (newId) {
+              for (const [key, existingMember] of Object.entries(currentMembers)) {
+                const existingId = existingMember['신도번호'] ? String(existingMember['신도번호']).trim() : '';
+                if (existingId === newId) {
+                  targetIndex = key;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (targetIndex !== null) {
+            // 기존 데이터 병합 (인덱스 유지)
+            currentMembers[targetIndex] = { ...currentMembers[targetIndex], ...member, index: Number(targetIndex) };
+          } else {
+            // 새 데이터 추가
+            lastIndex++;
+            currentMembers[lastIndex] = { ...member, index: lastIndex };
+          }
         }
       });
     }
