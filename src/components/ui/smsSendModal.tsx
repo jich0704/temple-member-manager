@@ -3,6 +3,7 @@ import { Send, Users, Smartphone, FileText, Loader2, Image as ImageIcon, X as XI
 import { Button } from './button';
 import { Badge } from './badge';
 import type { Member, SendSMSPayload } from '../../types/member';
+import { getAvailableMacroKeys } from '../../utils/macroUtils';
 
 interface SmsSendModalProps {
   isOpen: boolean;
@@ -141,11 +142,7 @@ export function SmsSendModal({ isOpen, onClose, targets, onSend, isSending, onAl
   };
 
   // 실제 엑셀 데이터(targets)에서 사용 가능한 항목 추출
-  const availableMacros = targets.length > 0 
-    ? Object.keys(targets[0])
-        .filter(k => k !== 'index' && k !== 'status' && k !== 'name' && k !== 'phone')
-        .map(k => `{${k}}`)
-    : [];
+  const availableMacros = getAvailableMacroKeys(targets).map(k => `{${k}}`);
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[400] flex items-center justify-center p-4 animate-in fade-in duration-200">

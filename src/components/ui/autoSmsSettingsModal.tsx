@@ -1,6 +1,7 @@
 import { X, Save, Clock, MessageSquare, AlertCircle, Info } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Button } from './button';
+import { getAvailableMacroKeys } from '../../utils/macroUtils';
 
 export interface AutoSmsRule {
   type: '1month' | '2weeks' | '1week';
@@ -43,11 +44,7 @@ export function AutoSmsSettingsModal({ isOpen, onClose }: AutoSmsSettingsModalPr
       }
       if (window.api && window.api.loadMembers) {
         window.api.loadMembers().then(members => {
-          if (members && members.length > 0) {
-            // 회원 데이터의 첫 번째 객체에서 키 추출 (불필요한 내부 속성 제외)
-            const keys = Object.keys(members[0]).filter(k => k !== 'index' && k !== 'status' && k !== 'name' && k !== 'phone');
-            setAvailableKeys(keys);
-          }
+          setAvailableKeys(getAvailableMacroKeys(members || []));
         });
       }
     }
