@@ -77,13 +77,19 @@ export function useMembers() {
 
     const { active, inactive, expiringSoon } = members.reduce(
       (acc, m) => {
-        const endDateValue = m['종료일'];
+        const lastPaymentMonth = m['최종납부월'];
         let isActive = true;
 
-        if (endDateValue) {
-          const targetDate = new Date(String(endDateValue));
-          if (!isNaN(targetDate.getTime())) {
-            targetDate.setHours(0, 0, 0, 0);
+        if (lastPaymentMonth) {
+          // 'YYYY-MM' 형태의 문자열 파싱
+          const [yearStr, monthStr] = String(lastPaymentMonth).split('-');
+          if (yearStr && monthStr) {
+            const year = parseInt(yearStr, 10);
+            const month = parseInt(monthStr, 10);
+            // 해당 월의 말일을 구함 (다음 달의 0번째 날)
+            const targetDate = new Date(year, month, 0);
+            targetDate.setHours(23, 59, 59, 999);
+
             const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
             if (diffDays < 0) {
               isActive = false;

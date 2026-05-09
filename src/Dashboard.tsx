@@ -37,28 +37,30 @@ const Dashboard = () => {
 
     return members.filter((m) => {
       if (activeFilter === '전체') return true;
+
+      const lastPaymentMonth = m['최종납부월'];
+      let targetDate: Date | null = null;
+      
+      if (lastPaymentMonth) {
+        const [yearStr, monthStr] = String(lastPaymentMonth).split('-');
+        if (yearStr && monthStr) {
+          const year = parseInt(yearStr, 10);
+          const month = parseInt(monthStr, 10);
+          targetDate = new Date(year, month, 0);
+          targetDate.setHours(23, 59, 59, 999);
+        }
+      }
+
       if (activeFilter === '활동' || activeFilter === '비활동') {
-        // '활동'/'비활동' 구분은 오늘 날짜와 종료일 비교
-        const endDateValue = m['종료일'];
-        if (!endDateValue) return activeFilter === '활동'; // 종료일 없으면 일단 활동으로 간주 (정책에 따라 변경 가능)
+        if (!targetDate) return activeFilter === '활동';
 
-        const targetDate = new Date(String(endDateValue));
-        if (isNaN(targetDate.getTime())) return activeFilter === '활동';
-
-        targetDate.setHours(0, 0, 0, 0);
         const isActive = targetDate.getTime() >= today.getTime();
         return activeFilter === '활동' ? isActive : !isActive;
       }
       if (activeFilter === '만료임박') {
-        const endDateValue = m['종료일'];
-        if (!endDateValue) return false;
+        if (!targetDate) return false;
 
-        const targetDate = new Date(String(endDateValue));
-        if (isNaN(targetDate.getTime())) return false;
-
-        targetDate.setHours(0, 0, 0, 0);
         const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        // 설정된 warningDays 기준 사용
         return diffDays >= 0 && diffDays <= settings.warningDays;
       }
       return true;

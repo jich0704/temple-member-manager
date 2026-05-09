@@ -6,10 +6,17 @@ import {
   ArrowUp,
   ArrowDown,
   Trash2,
+  Settings2,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -28,14 +35,14 @@ interface Props {
 export default function MemberTable({ members, onDeleteMembers, settings }: Props) {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: '인등번호', direction: 'desc' });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // 컬럼 설정 (기본적으로 모든 키를 표시하되 관리에 필요한 이름, 전화번호 우선)
   // 실제 엑셀 데이터의 키 값들을 동적으로 추출
   const dynamicHeaders = useMemo(() => {
     if (members.length === 0) return [];
-    // 모든 멤버의 키를 합쳐서 중복 제거
+    // 모든 멤버의 키를 합쳐서 중복 제거 (엑셀 데이터의 원래 순서가 유지됨)
     const allKeys = new Set<string>();
     members.forEach((m) => {
       Object.keys(m).forEach((k) => {
@@ -45,13 +52,13 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
       });
     });
     
-    const baseHeaders = ['이름', '전화번호'];
-    const otherHeaders = Array.from(allKeys).filter(h => !baseHeaders.includes(h));
-    
-    return [...baseHeaders, ...otherHeaders];
+    return Array.from(allKeys);
   }, [members]);
 
-  const activeColumns = dynamicHeaders; // 일단 전체 표시
+  const [activeColumns, setActiveColumns] = useState<string[]>([
+    '위치명', '등록일', '신도번호', '대주', 
+    '영가여부', '동참자', '생일', '휴대폰', 'DM', '가족순서', '최종납부월'
+  ]);
 
   // 필터링 (activeFilter는 대시보드에서 이미 처리되어 내려오지만 추가적인 검색 등이 있다면 여기서 처리 가능)
   const filteredMembers = members; 
@@ -139,6 +146,39 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
           )}
         </div>
         <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-2">
+                <Settings2 className="h-4 w-4" />
+                컬럼 선택
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[180px] max-h-[300px] overflow-y-auto">
+              {dynamicHeaders.map((header) => {
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={header}
+                    checked={activeColumns.includes(header)}
+                    onCheckedChange={(value) => {
+                      if (value) {
+                        // dynamicHeaders 순서대로 정렬을 유지하며 추가
+                        setActiveColumns(prev => {
+                          const next = new Set(prev);
+                          next.add(header);
+                          return dynamicHeaders.filter(h => next.has(h));
+                        });
+                      } else {
+                        setActiveColumns(prev => prev.filter(h => h !== header));
+                      }
+                    }}
+                  >
+                    {header}
+                  </DropdownMenuCheckboxItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Select value={itemsPerPage.toString()} onValueChange={handleItemsPerPageChange}>
             <SelectTrigger className="w-20">
               <SelectValue />
@@ -153,33 +193,31 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
       </div>
 
       {/* --- 테이블 리스트 --- */}
-      <div className="flex-1 overflow-y-auto relative">
-        {/* --- 동적 테이블 헤더 (Sticky) --- */}
-        <div className="sticky top-0 z-10 flex h-12 items-center border-b bg-gray-50 px-6 font-semibold shadow-sm">
-          <div className="w-12"></div>
-          {dynamicHeaders
-            .filter((header) => activeColumns.includes(header))
-            .map((header) => {
-              const isNameOrPhone = ['이름', '전화번호', 'phone', 'name'].includes(header);
-              return (
-                <div
-                  key={header}
-                  onClick={() => handleSort(header)}
-                  className={`flex-1 flex cursor-pointer items-center gap-2 px-2 text-gray-700 hover:text-blue-600 select-none group relative ${isNameOrPhone ? 'justify-start' : 'justify-center'}`}
-                >
-                  <span className="truncate">{header}</span>
-                  <div className={`flex items-center text-gray-400 ${isNameOrPhone ? '' : 'absolute right-0'}`}>
-                    {sortConfig?.key === header ? (sortConfig.direction === 'asc' ? <ArrowUp className="h-4 w-4 text-blue-600" /> : <ArrowDown className="h-4 w-4 text-blue-600" />) : <ArrowUpDown className="h-4 w-4 opacity-0 group-hover:opacity-50" />}
+      <div className="flex-1 overflow-auto relative">
+        <div className="min-w-[1600px] w-full">
+          {/* --- 동적 테이블 헤더 (Sticky) --- */}
+          <div className="sticky top-0 z-10 flex h-12 items-center border-b bg-gray-50 px-6 font-semibold shadow-sm">
+            <div className="w-12 shrink-0"></div>
+            {dynamicHeaders
+              .filter((header) => activeColumns.includes(header))
+              .map((header) => {
+                const isNameOrPhone = ['이름', '전화번호', '대주', '동참자', '휴대폰', 'phone', 'name'].includes(header);
+                return (
+                  <div
+                    key={header}
+                    onClick={() => handleSort(header)}
+                    className={`flex-1 flex cursor-pointer items-center gap-2 px-2 text-gray-700 hover:text-blue-600 select-none group relative ${isNameOrPhone ? 'justify-start' : 'justify-center'}`}
+                  >
+                    <span className="truncate">{header}</span>
                   </div>
-                </div>
-              );
-            })}
-          <div className="w-32 flex justify-center text-gray-700">상태</div>
-          <div className="w-20 flex justify-center text-gray-700">SMS</div>
-          <div className="w-20 flex justify-center text-gray-700">삭제</div>
-        </div>
+                );
+              })}
+            <div className="w-32 shrink-0 flex justify-center text-gray-700">상태</div>
+            <div className="w-20 shrink-0 flex justify-center text-gray-700">SMS</div>
+            <div className="w-20 shrink-0 flex justify-center text-gray-700">삭제</div>
+          </div>
 
-        {members.length === 0 ? (
+          {members.length === 0 ? (
           <div className="flex h-[calc(100%-48px)] flex-col items-center justify-center text-muted-foreground bg-white">
             <p className="mt-20">등록된 회원이 없습니다.</p>
           </div>
@@ -189,7 +227,7 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
               const isSelected = selectedIds.has(String(m.index));
               return (
                 <div key={String(m.index)} className={`group flex h-14 cursor-pointer items-center border-b border-gray-100 px-6 transition-all duration-200 hover:bg-blue-50 ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
-                  <div className="flex w-12 items-center">
+                  <div className="flex w-12 shrink-0 items-center">
                     <Checkbox checked={isSelected} onCheckedChange={() => handleSelectOne(String(m.index))} />
                   </div>
 
@@ -197,7 +235,7 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
                   {dynamicHeaders
                     .filter((header) => activeColumns.includes(header))
                     .map((header) => {
-                      const isNameOrPhone = ['이름', '전화번호', 'phone', 'name'].includes(header);
+                      const isNameOrPhone = ['이름', '전화번호', '대주', '동참자', '휴대폰', 'phone', 'name'].includes(header);
                       return (
                         <div key={header} className={`flex-1 truncate px-2 text-sm text-gray-700 ${isNameOrPhone ? 'text-left' : 'text-center'}`}>
                           {m[header] || '-'}
@@ -205,22 +243,22 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
                       );
                     })}
 
-                  {/* 상태 선택 및 종료일 디데이 뱃지 */}
-                  <div className="flex w-32 justify-center">
+                  {/* 상태 선택 및 디데이 뱃지 */}
+                  <div className="flex w-32 shrink-0 justify-center">
                     <StatusDisplay 
                         status={String(m.status)} 
-                        endDate={m['종료일'] ? String(m['종료일']) : undefined} 
+                        lastPaymentMonth={m['최종납부월'] ? String(m['최종납부월']) : undefined} 
                         settings={settings}
                     />
                   </div>
 
                   {/* 삭제 버튼 등 */}
-                  <div className="flex w-20 justify-center gap-2">
+                  <div className="flex w-20 shrink-0 justify-center gap-2">
                      <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-500 hover:bg-blue-50">
                         💬
                      </Button>
                   </div>
-                  <div className="flex w-20 justify-center">
+                  <div className="flex w-20 shrink-0 justify-center">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -240,6 +278,7 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
             })}
           </div>
         )}
+        </div>
       </div>
 
       {/* --- 페이지네이션 --- */}
@@ -285,19 +324,23 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
 // ----------------------------------------------------
 // 상태 및 날짜 표시 컴포넌트
 // ----------------------------------------------------
-const StatusDisplay = ({ status, endDate, settings }: { status: string; endDate?: string; settings: Settings }) => {
-  if (!endDate || endDate === '-' || endDate.trim() === '') {
+const StatusDisplay = ({ status, lastPaymentMonth, settings }: { status: string; lastPaymentMonth?: string; settings: Settings }) => {
+  if (!lastPaymentMonth || lastPaymentMonth === '-' || lastPaymentMonth.trim() === '') {
     return <StatusBadge text={status} colorClass={status === '비활동' ? 'from-gray-400 to-gray-500' : settings.safeColor} />;
   }
 
-  const targetDate = new Date(endDate);
-  if (isNaN(targetDate.getTime())) {
+  const [yearStr, monthStr] = lastPaymentMonth.split('-');
+  if (!yearStr || !monthStr) {
     return <StatusBadge text={status} colorClass="from-gray-400 to-gray-500" />;
   }
 
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const targetDate = new Date(year, month, 0); // 월말
+  targetDate.setHours(23, 59, 59, 999);
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  targetDate.setHours(0, 0, 0, 0);
 
   const diffTime = targetDate.getTime() - today.getTime();
   const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));

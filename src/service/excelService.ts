@@ -18,15 +18,18 @@ export const parseExcel = (file: File): Promise<Member[]> => {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
       // 2. raw: true (기본값)로 설정하여 Date 객체를 문자열로 바꾸지 않고 날것 그대로 가져옵니다.
-      const data = XLSX.utils.sheet_to_json<ExcelRawRow>(sheet);
+      // defval: '' 옵션을 주어 빈 셀이더라도 컬럼 키가 누락되지 않게 하여 엑셀 원래의 컬럼 순서를 보장합니다.
+      const data = XLSX.utils.sheet_to_json<ExcelRawRow>(sheet, { defval: '' });
 
       const parsed: Member[] = data.map((row) => {
         const formattedRow: FormattedRow = {};
 
-        // 3. 데이터를 한 줄씩 읽으면서, '날짜(Date)' 타입이 발견되면 무조건 YYYY-MM-DD로 바꿔버립니다.
+        // 3. 데이터를 한 줄씩 읽으면서 데이터 변환을 수행합니다.
         Object.keys(row).forEach((key) => {
-          if (row[key] instanceof Date) {
-            const d = row[key] as Date;
+          let value = row[key];
+
+          if (value instanceof Date) {
+            const d = value;
             // xlsx 라이브러리는 날짜를 UTC 기준으로 읽어오므로 getUTC 메서드를 씁니다.
             const year = d.getUTCFullYear();
             const month = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -34,7 +37,17 @@ export const parseExcel = (file: File): Promise<Member[]> => {
 
             formattedRow[key] = `${year}-${month}-${day}`;
           } else {
-            formattedRow[key] = row[key];
+            // Checked / Unchecked 변환 로직 추가
+            if (typeof value === 'string') {
+              if (key === '영가여부') {
+                value = value === 'Checked' ? 'O' : (value === 'Unchecked' ? 'X' : value);
+              } else if (key === '음력') {
+                value = value === 'Checked' ? '음력' : (value === 'Unchecked' ? '양력' : value);
+              } else if (key === 'DM') {
+                value = value === 'Checked' ? '수신동의' : (value === 'Unchecked' ? '미동의' : value);
+              }
+            }
+            formattedRow[key] = value;
           }
         });
 
