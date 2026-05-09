@@ -9,8 +9,8 @@ export function useMembers() {
   const [members, setMembers] = useState<Member[]>([]);
   const [settings, setSettings] = useState<Settings>({
     warningDays: 30,
-    criticalDays: 7,
-    warningColor: 'from-blue-500 to-blue-600',
+    criticalDays: 14,
+    warningColor: 'from-orange-400 to-orange-500',
     criticalColor: 'from-red-500 to-red-600',
     safeColor: 'from-green-500 to-emerald-500',
   });
@@ -75,12 +75,11 @@ export function useMembers() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { active, inactive, expiringSoon } = members.reduce(
+    const counts = members.reduce(
       (acc, m) => {
         const lastPaymentMonth = m['최종납부월'];
-        let isActive = true;
 
-        if (lastPaymentMonth) {
+        if (lastPaymentMonth && lastPaymentMonth !== '-') {
           // 'YYYY-MM' 형태의 문자열 파싱
           const [yearStr, monthStr] = String(lastPaymentMonth).split('-');
           if (yearStr && monthStr) {
@@ -91,28 +90,24 @@ export function useMembers() {
             targetDate.setHours(23, 59, 59, 999);
 
             const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            
             if (diffDays < 0) {
-              isActive = false;
-            } else if (diffDays <= settings.warningDays) {
-              // 활동 중이면서 설정된 경고일 이내 만료 예정
-              acc.expiringSoon += 1;
+              acc.expired += 1;
+            } else if (diffDays <= settings.criticalDays) { // 0 ~ 14일
+              acc.twoWeeks += 1;
+            } else if (diffDays <= settings.warningDays) { // 15 ~ 30일
+              acc.oneMonth += 1;
             }
           }
         }
 
-        if (isActive) {
-          acc.active += 1;
-        } else {
-          acc.inactive += 1;
-        }
-
         return acc;
       },
-      { active: 0, inactive: 0, expiringSoon: 0 },
+      { expired: 0, twoWeeks: 0, oneMonth: 0 },
     );
 
-    return { total, active, inactive, expiringSoon };
-  }, [members, settings.warningDays]);
+    return { total, expired: counts.expired, twoWeeks: counts.twoWeeks, oneMonth: counts.oneMonth };
+  }, [members, settings.warningDays, settings.criticalDays]);
 
 
   // 엑셀 내보내기 처리

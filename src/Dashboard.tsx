@@ -6,7 +6,7 @@ import { useMembers } from './hooks/useMembers';
 import { useSMS } from './hooks/useSms';
 
 // 필터 타입 정의
-type FilterType = '전체' | '활동' | '비활동' | '만료임박';
+type FilterType = '전체' | '한달전' | '2주전' | '종료';
 
 const Dashboard = () => {
   const { members, stats, handleUpload, handleDeleteMembers, handleExportExcel, settings, handleUpdateSettings } = useMembers();
@@ -51,21 +51,22 @@ const Dashboard = () => {
         }
       }
 
-      if (activeFilter === '활동' || activeFilter === '비활동') {
-        if (!targetDate) return activeFilter === '활동';
+      if (!targetDate) return false;
 
-        const isActive = targetDate.getTime() >= today.getTime();
-        return activeFilter === '활동' ? isActive : !isActive;
+      const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (activeFilter === '종료') {
+        return diffDays < 0;
       }
-      if (activeFilter === '만료임박') {
-        if (!targetDate) return false;
-
-        const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        return diffDays >= 0 && diffDays <= settings.warningDays;
+      if (activeFilter === '2주전') {
+        return diffDays >= 0 && diffDays <= settings.criticalDays;
+      }
+      if (activeFilter === '한달전') {
+        return diffDays > settings.criticalDays && diffDays <= settings.warningDays;
       }
       return true;
     });
-  }, [members, activeFilter, settings.warningDays]);
+  }, [members, activeFilter, settings.warningDays, settings.criticalDays]);
 
   return (
     <div className="min-h-screen bg-slate-50/50">

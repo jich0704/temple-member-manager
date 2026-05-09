@@ -1,12 +1,12 @@
-import { AlertTriangle, Award, ChevronDown, ChevronUp, TrendingUp, Users } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Users, Clock, AlertCircle, CalendarX } from 'lucide-react';
 import { useState } from 'react';
 import StatsCard from './statsCard';
 import { Button } from './ui/button';
 
-type FilterType = '전체' | '활동' | '비활동' | '만료임박';
+type FilterType = '전체' | '한달전' | '2주전' | '종료';
 
 interface StatsSectionProps {
-  stats: { total: number; active: number; inactive: number; expiringSoon: number };
+  stats: { total: number; oneMonth: number; twoWeeks: number; expired: number };
   activeFilter: FilterType;
   onFilterChange: (filter: FilterType) => void;
 }
@@ -52,31 +52,31 @@ export default function StatsSection({ stats, activeFilter, onFilterChange }: St
             isActive={activeFilter === '전체'}
           />
           <StatsCard
-            title="활동 회원"
-            value={stats.active}
-            icon={TrendingUp}
-            gradient="bg-gradient-to-br from-green-500 to-emerald-600"
+            title="한 달 전"
+            value={stats.oneMonth}
+            icon={Clock}
+            gradient="bg-gradient-to-br from-orange-400 to-orange-500"
             iconColor="text-white"
-            onClick={() => handleCardClick('활동')}
-            isActive={activeFilter === '활동'}
+            onClick={() => handleCardClick('한달전')}
+            isActive={activeFilter === '한달전'}
           />
           <StatsCard
-            title="비활동 회원"
-            value={stats.inactive}
-            icon={Award}
-            gradient="bg-gradient-to-br from-gray-400 to-gray-500"
+            title="2주 전"
+            value={stats.twoWeeks}
+            icon={AlertCircle}
+            gradient="bg-gradient-to-br from-red-500 to-red-600"
             iconColor="text-white"
-            onClick={() => handleCardClick('비활동')}
-            isActive={activeFilter === '비활동'}
+            onClick={() => handleCardClick('2주전')}
+            isActive={activeFilter === '2주전'}
           />
           <StatsCard
-            title="만료 임박"
-            value={stats.expiringSoon}
-            icon={AlertTriangle}
-            gradient="bg-gradient-to-br from-orange-400 to-red-500"
+            title="종료"
+            value={stats.expired}
+            icon={CalendarX}
+            gradient="bg-gradient-to-br from-gray-500 to-gray-600"
             iconColor="text-white"
-            onClick={() => handleCardClick('만료임박')}
-            isActive={activeFilter === '만료임박'}
+            onClick={() => handleCardClick('종료')}
+            isActive={activeFilter === '종료'}
           />
         </div>
       )}
