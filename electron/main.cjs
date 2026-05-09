@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const Store = require('electron-store').default;
+const coolsms = require('coolsms-node-sdk').default;
 
 let store;
 let settingsStore;
@@ -62,6 +64,15 @@ function createWindow() {
 app.whenReady().then(() => {
   initStore();
   createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
+  
+  // 자동 발송 스케줄러 시작
+  startAutoSmsScheduler();
 });
 
 ipcMain.handle('add-members', (event, payload) => {
@@ -112,10 +123,16 @@ ipcMain.handle('add-members', (event, payload) => {
           // 누적 모드일 경우 신도번호를 기준으로 중복 검색
           if (mode === 'append') {
             const newId = member['신도번호'] ? String(member['신도번호']).trim() : '';
+            const newDaeju = member['대주'] ? String(member['대주']).trim() : '';
+            const newDongchamja = member['동참자'] ? String(member['동참자']).trim() : '';
+
             if (newId) {
               for (const [key, existingMember] of Object.entries(currentMembers)) {
                 const existingId = existingMember['신도번호'] ? String(existingMember['신도번호']).trim() : '';
-                if (existingId === newId) {
+                const existingDaeju = existingMember['대주'] ? String(existingMember['대주']).trim() : '';
+                const existingDongchamja = existingMember['동참자'] ? String(existingMember['동참자']).trim() : '';
+
+                if (existingId === newId && existingDaeju === newDaeju && existingDongchamja === newDongchamja) {
                   targetIndex = key;
                   break;
                 }
@@ -179,10 +196,322 @@ ipcMain.handle('load-members', () => {
   return dataArray.sort((a, b) => b.index - a.index);
 });
 
+ipcMain.handle('get-solapi-balance', async (_, { apiKey, apiSecret }) => {
+  try {
+    const messageService = new coolsms(apiKey, apiSecret);
+    const result = await messageService.getBalance();
+    return { success: true, balance: result };
+  } catch (error) {
+    console.error('Solapi 인증 실패:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('open-external', async (_, url) => {
+  await shell.openExternal(url);
+  return true;
+});
+const smsHistoryPath = path.join(app.getPath('userData'), 'sms-history.json');
+
+function saveSmsHistory(historyItem) {
+  try {
+    let history = [];
+    if (fs.existsSync(smsHistoryPath)) {
+      history = JSON.parse(fs.readFileSync(smsHistoryPath, 'utf8'));
+    }
+    history.unshift(historyItem);
+    if (history.length > 100) history = history.slice(0, 100);
+    fs.writeFileSync(smsHistoryPath, JSON.stringify(history, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to save SMS history', err);
+  }
+}
+
+ipcMain.handle('get-sms-history', () => {
+  try {
+    if (fs.existsSync(smsHistoryPath)) {
+      return JSON.parse(fs.readFileSync(smsHistoryPath, 'utf8'));
+    }
+  } catch (err) {}
+  return [];
+});
+
+ipcMain.handle('clear-sms-history', () => {
+  const smsHistoryPath = path.join(app.getPath('userData'), 'sms-history.json');
+  try {
+    if (fs.existsSync(smsHistoryPath)) {
+      fs.unlinkSync(smsHistoryPath);
+    }
+  } catch (err) {
+    console.error('발송 이력 삭제 실패:', err);
+  }
+});
+
+// 자동 문자 발송 설정
+ipcMain.handle('get-auto-sms-config', () => {
+  return store.get('autoSmsConfig') || null;
+});
+
+ipcMain.handle('save-auto-sms-config', (event, config) => {
+  store.set('autoSmsConfig', config);
+  return true;
+});
+
+// 자동 발송 스케줄러 로직
+let autoSmsTimer = null;
+
+function startAutoSmsScheduler() {
+  if (autoSmsTimer) clearInterval(autoSmsTimer);
+  checkAndRunAutoSms();
+  
+  // 1분마다 체크
+  autoSmsTimer = setInterval(() => {
+    checkAndRunAutoSms();
+  }, 60 * 1000);
+}
+
+async function checkAndRunAutoSms() {
+  const config = store.get('autoSmsConfig');
+  if (!config || !config.enabled || !config.time) return;
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+  const lastRunDate = store.get('lastAutoSmsRunDate');
+  
+  const configTimeParts = config.time.split(':');
+  const configHour = parseInt(configTimeParts[0], 10);
+  const configMinute = parseInt(configTimeParts[1], 10);
+  
+  const hasPassedConfigTime = now.getHours() > configHour || (now.getHours() === configHour && now.getMinutes() >= configMinute);
+  
+  if (hasPassedConfigTime && lastRunDate !== todayStr) {
+    await executeAutoSms(config);
+    store.set('lastAutoSmsRunDate', todayStr);
+  }
+}
+
+async function executeAutoSms(config) {
+  const settings = store.get('settings') || {};
+  if (!settings.solapiApiKey || !settings.solapiApiSecret || !settings.solapiSenderNumber) return;
+  
+  const rawMembers = store.get('members') || {};
+  let currentMembers = [];
+  if (Array.isArray(rawMembers)) {
+    currentMembers = rawMembers.filter(m => m && m.index !== undefined);
+  } else {
+    currentMembers = Object.values(rawMembers).filter(m => m);
+  }
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const logPath = path.join(app.getPath('userData'), 'auto-sms-log.json');
+  let autoSmsLog = {};
+  if (fs.existsSync(logPath)) {
+    try { autoSmsLog = JSON.parse(fs.readFileSync(logPath, 'utf8')); } catch (e) {}
+  }
+  
+  const messageService = new coolsms(settings.solapiApiKey, settings.solapiApiSecret);
+  
+  for (const rule of config.rules) {
+    if (!rule.enabled || !rule.template) continue;
+    
+    const targets = [];
+    
+    for (const member of currentMembers) {
+      if (member.status === '비활동') continue;
+      
+      const lastPaymentMonth = member['최종납부월'];
+      if (!lastPaymentMonth || lastPaymentMonth === '-') continue;
+      
+      const [yearStr, monthStr] = String(lastPaymentMonth).split('-');
+      if (!yearStr || !monthStr) continue;
+      
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const targetDate = new Date(year, month, 0);
+      targetDate.setHours(23, 59, 59, 999);
+      
+      const diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      
+      let isMatch = false;
+      if (rule.type === '1month' && diffDays <= 30 && diffDays > 14) isMatch = true;
+      if (rule.type === '2weeks' && diffDays <= 14 && diffDays > 7) isMatch = true;
+      if (rule.type === '1week' && diffDays <= 7 && diffDays >= 0) isMatch = true;
+      
+      if (!isMatch) continue;
+      
+      const id = member['신도번호'] ? String(member['신도번호']).trim() : '';
+      const daeju = member['대주'] ? String(member['대주']).trim() : '';
+      const dongchamja = member['동참자'] ? String(member['동참자']).trim() : '';
+      
+      if (!id && !daeju && !dongchamja) continue;
+      
+      const duplicateKey = `${id}_${daeju}_${dongchamja}_${yearStr}-${monthStr}_${rule.type}`;
+      if (autoSmsLog[duplicateKey]) continue;
+      
+      targets.push({ member, duplicateKey });
+    }
+    
+    if (targets.length === 0) continue;
+    
+    const messages = [];
+    const validTargets = [];
+    
+    for (const { member, duplicateKey } of targets) {
+      const toPhone = member.phone || member['연락처'] || member['휴대전화'];
+      if (!toPhone) continue;
+      
+      let content = rule.template;
+      Object.keys(member).forEach(key => {
+        const val = member[key];
+        if (val !== undefined && val !== null) {
+          content = content.replace(new RegExp(`\\{${key}\\}`, 'g'), String(val));
+        }
+      });
+      
+      messages.push({
+        to: toPhone.replace(/[^0-9]/g, ''),
+        from: settings.solapiSenderNumber.replace(/[^0-9]/g, ''),
+        text: content,
+        autoTypeDetect: true
+      });
+      validTargets.push({ member, duplicateKey });
+    }
+    
+    if (messages.length === 0) continue;
+    
+    try {
+      const result = await messageService.sendMany(messages);
+      
+      for (const { duplicateKey } of validTargets) {
+        autoSmsLog[duplicateKey] = new Date().toISOString();
+      }
+      fs.writeFileSync(logPath, JSON.stringify(autoSmsLog, null, 2), 'utf8');
+      
+      let typeLabel = '';
+      if (rule.type === '1month') typeLabel = '만료 한달 전';
+      else if (rule.type === '2weeks') typeLabel = '만료 2주 전';
+      else if (rule.type === '1week') typeLabel = '만료 1주 전';
+      
+      saveSmsHistory({
+        id: Date.now().toString() + '_' + rule.type,
+        date: new Date().toISOString(),
+        template: `[자동 발송: ${typeLabel}]\n${rule.template}`,
+        hasImage: false,
+        targets: validTargets.map(t => ({ name: t.member.name || t.member['대주'] || '이름없음', phone: t.member.phone || t.member['연락처'] || '' })),
+        success: true,
+        result
+      });
+    } catch (e) {
+      console.error('Auto SMS Send Error:', e);
+    }
+  }
+}
+
 ipcMain.handle('send-sms', async (_, payload) => {
-  console.log('SMS 발송:', payload);
-  // 실제 API 연동 위치
-  return { success: true };
+  console.log('SMS 발송 Payload:', payload);
+  const { apiKey, apiSecret, senderNumber, targets, messageTemplate, imagePath } = payload;
+  
+  if (!apiKey || !apiSecret || !senderNumber) {
+    return { success: false, error: '솔라피 설정 정보가 누락되었습니다.' };
+  }
+
+  const basicTargetInfo = targets.map(m => ({
+    name: m['대주'] || m['이름'] || '알수없음',
+    phone: m['휴대폰'] || m.phone || m['전화번호'] || '알수없음'
+  }));
+
+  try {
+    const messageService = new coolsms(apiKey, apiSecret);
+    
+    let imageId = undefined;
+    if (imagePath) {
+      try {
+        // Base64 데이터를 임시 파일로 저장
+        const tempPath = path.join(app.getPath('temp'), `mms-${Date.now()}.jpg`);
+        fs.writeFileSync(tempPath, Buffer.from(imagePath, 'base64'));
+
+        // SDK의 기본 uploadFile 함수 사용 (내부적으로 다시 base64 인코딩됨)
+        const uploadResult = await messageService.uploadFile(tempPath, 'MMS');
+        imageId = uploadResult.fileId;
+
+        // 임시 파일 삭제
+        if (fs.existsSync(tempPath)) {
+          fs.unlinkSync(tempPath);
+        }
+      } catch (err) {
+        console.error('이미지 업로드 실패:', err);
+        throw new Error('MMS 이미지 업로드에 실패했습니다.');
+      }
+    }
+    
+    // 수신자 리스트 생성
+    const messages = targets.map((member) => {
+      // 휴대폰 번호 정리 (하이픈, 공백 제거)
+      let toPhone = '';
+      if (member.phone) {
+         toPhone = String(member.phone).replace(/[^0-9]/g, '');
+      } else if (member['휴대폰']) {
+         toPhone = String(member['휴대폰']).replace(/[^0-9]/g, '');
+      } else if (member['전화번호']) {
+         toPhone = String(member['전화번호']).replace(/[^0-9]/g, '');
+      }
+
+      // 치환 (매크로) 로직
+      let content = messageTemplate;
+      Object.keys(member).forEach((key) => {
+        const regex = new RegExp(`{${key}}`, 'g');
+        content = content.replace(regex, member[key] || '');
+      });
+
+      const msg = {
+        to: toPhone,
+        from: senderNumber.replace(/[^0-9]/g, ''),
+        text: content,
+        type: imageId ? 'MMS' : undefined,
+        // 제목을 완전한 공백(Zero-width space 또는 일반 공백)으로 설정하여 숨김
+        subject: imageId ? '\u200B' : undefined,
+        autoTypeDetect: imageId ? false : true
+      };
+      if (imageId) msg.imageId = imageId;
+      return msg;
+    }).filter(msg => msg.to.length >= 10);
+
+    if (messages.length === 0) {
+      throw new Error('유효한 수신자 번호가 없습니다.');
+    }
+
+    const result = await messageService.sendMany(messages);
+    
+    saveSmsHistory({
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      template: messageTemplate,
+      hasImage: !!imagePath,
+      imageBase64: imagePath, // 이미지를 이력에 저장
+      targets: basicTargetInfo,
+      success: true,
+      result
+    });
+
+    return { success: true, result };
+  } catch (error) {
+    console.error('Solapi 발송 실패:', error);
+    
+    saveSmsHistory({
+      id: Date.now().toString(),
+      date: new Date().toISOString(),
+      template: messageTemplate,
+      hasImage: !!imagePath,
+      imageBase64: imagePath, // 이미지를 이력에 저장
+      targets: basicTargetInfo,
+      success: false,
+      errorMsg: error.message
+    });
+
+    return { success: false, error: error.message };
+  }
 });
 
 ipcMain.handle('load-settings', () => {

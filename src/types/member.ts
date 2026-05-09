@@ -10,11 +10,34 @@ export interface Member {
 
 export interface SendSMSPayload {
   targets: Member[];
-  message: string;
+  messageTemplate: string;
+  apiKey: string;
+  apiSecret: string;
+  senderNumber: string;
+  imagePath?: string;
 }
 
 export interface SendSMSResponse {
   success: boolean;
+  error?: string;
+  result?: any;
+}
+
+export interface SmsHistoryTarget {
+  name: string;
+  phone: string;
+}
+
+export interface SmsHistoryItem {
+  id: string;
+  date: string;
+  template: string;
+  hasImage: boolean;
+  imageBase64?: string;
+  targets: SmsHistoryTarget[];
+  success: boolean;
+  errorMsg?: string;
+  result?: any;
 }
 
 export interface Settings {
@@ -23,4 +46,7 @@ export interface Settings {
   warningColor: string;
   criticalColor: string;
   safeColor: string;
+  solapiApiKey?: string;
+  solapiApiSecret?: string;
+  solapiSenderNumber?: string;
 }

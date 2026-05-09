@@ -30,10 +30,11 @@ import type { Member, Settings } from '../types/member';
 interface Props {
   members: Member[];
   onDeleteMembers: (ids: string[]) => void;
+  onSendSelected?: (members: Member[]) => void;
   settings: Settings;
 }
 
-export default function MemberTable({ members, onDeleteMembers, settings }: Props) {
+export default function MemberTable({ members, onDeleteMembers, onSendSelected, settings }: Props) {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: '인등번호', direction: 'desc' });
@@ -148,9 +149,24 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
             <span className="text-sm font-medium text-gray-500">전체 선택</span>
           </div>
           {selectedIds.size > 0 && (
-            <Button variant="destructive" size="sm" onClick={handleDeleteSelected} className="gap-2">
-              <Trash2 className="h-4 w-4" /> 선택 삭제
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                onClick={() => {
+                  if (onSendSelected) {
+                    const targets = sortedMembers.filter(m => selectedIds.has(String(m.index)));
+                    onSendSelected(targets);
+                  }
+                }} 
+                className="gap-2 bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 border"
+              >
+                선택 회원 문자 발송
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleDeleteSelected} className="gap-2">
+                <Trash2 className="h-4 w-4" /> 선택 삭제
+              </Button>
+            </div>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -262,7 +278,15 @@ export default function MemberTable({ members, onDeleteMembers, settings }: Prop
 
                   {/* 삭제 버튼 등 */}
                   <div className="flex w-20 shrink-0 justify-center gap-2">
-                     <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-500 hover:bg-blue-50">
+                     <Button 
+                       size="icon" 
+                       variant="ghost" 
+                       className="h-8 w-8 text-blue-500 hover:bg-blue-50"
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         if (onSendSelected) onSendSelected([m]);
+                       }}
+                     >
                         💬
                      </Button>
                   </div>

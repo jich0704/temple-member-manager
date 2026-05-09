@@ -14,7 +14,7 @@ export function ConfirmModal({ isOpen, title, message, onConfirm, onCancel, isAl
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in duration-300">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[500] flex items-center justify-center p-4 animate-in fade-in duration-300">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in slide-in-from-bottom-4 duration-300">
         <div className="px-6 py-4 border-b flex items-center gap-2 bg-slate-50/50">
           <AlertCircle className={`w-5 h-5 ${isAlert ? 'text-red-500' : 'text-blue-500'}`} />
