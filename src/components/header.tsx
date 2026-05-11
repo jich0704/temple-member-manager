@@ -85,7 +85,7 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
     <div className="relative flex items-center justify-between">
       {/* 제목 */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-700 to-slate-900 bg-clip-text text-transparent">사찰 회원관리 시스템</h1>
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-700 to-slate-900 bg-clip-text text-transparent">신도관리 시스템</h1>
       </div>
 
 

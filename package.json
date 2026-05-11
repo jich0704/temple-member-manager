@@ -14,7 +14,7 @@
   },
   "build": {
     "appId": "com.example.templemanager",
-    "productName": "사찰회원 관리시스템",
+    "productName": "신도관리시스템",
     "directories": {
       "output": "release"
     },

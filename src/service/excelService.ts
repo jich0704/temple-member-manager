@@ -90,5 +90,5 @@ export const exportToExcel = (members: Member[]) => {
 
   // 파일 생성 및 다운로드
   const today = new Date().toISOString().split('T')[0];
-  XLSX.writeFile(workbook, `사찰회원_백업_${today}.xlsx`);
+  XLSX.writeFile(workbook, `신도인등_백업_${today}.xlsx`);
 };

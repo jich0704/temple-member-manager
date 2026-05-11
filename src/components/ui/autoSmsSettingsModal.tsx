@@ -25,9 +25,9 @@ export function AutoSmsSettingsModal({ isOpen, onClose }: AutoSmsSettingsModalPr
     enabled: false,
     time: '10:00',
     rules: [
-      { type: '1month', enabled: false, template: '[만료 1개월 전 안내]\n{대주}님, 사찰회원 만료가 한 달 남았습니다.' },
-      { type: '2weeks', enabled: false, template: '[만료 2주 전 안내]\n{대주}님, 사찰회원 만료가 2주 남았습니다.' },
-      { type: '1week', enabled: false, template: '[만료 1주 전 안내]\n{대주}님, 사찰회원 만료가 1주 남았습니다.' }
+      { type: '1month', enabled: false, template: '[만료 1개월 전 안내]\n{대주}님, 인등 만료가 한 달 남았습니다.' },
+      { type: '2weeks', enabled: false, template: '[만료 2주 전 안내]\n{대주}님, 인등 만료가 2주 남았습니다.' },
+      { type: '1week', enabled: false, template: '[만료 1주 전 안내]\n{대주}님, 인등 만료가 1주 남았습니다.' }
     ]
   });
 
