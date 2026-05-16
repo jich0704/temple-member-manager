@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { exportToExcel, parseExcel } from '../service/excelService';
-import type { Member, Settings } from '../types/member';
+import type { Member, Settings, SmsHistoryItem } from '../types/member';
 
 /*
  * 멤버 상태, 통계 계산 및 API 통신 (업로드, 삭제 등)
  */
-export function useMembers() {
+export function useMembers(activeLocation: string = '전체') {
   const [members, setMembers] = useState<Member[]>([]);
   const [settings, setSettings] = useState<Settings>({
     warningDays: 30,
@@ -17,16 +17,51 @@ export function useMembers() {
 
   // 초기 데이터 및 설정 로드
   useEffect(() => {
-    if (window.api?.loadMembers) {
-      window.api.loadMembers().then((data) => {
-        if (data) setMembers(data);
-      });
-    }
-    if (window.api?.loadSettings) {
-      window.api.loadSettings().then((data) => {
+    const loadData = async () => {
+      if (window.api?.loadSettings) {
+        const data = await window.api.loadSettings();
         if (data) setSettings(data);
-      });
-    }
+      }
+
+      if (window.api?.loadMembers) {
+        const membersData = await window.api.loadMembers();
+        if (membersData) {
+          let latestDates = new Map<string, string>();
+          if (window.api?.getSmsHistory) {
+            try {
+              const historyData: SmsHistoryItem[] = await window.api.getSmsHistory();
+              if (historyData && historyData.length > 0) {
+                historyData.forEach((item) => {
+                  if (item.success) {
+                    item.targets.forEach((t) => {
+                      const currentLatest = latestDates.get(t.phone);
+                      if (!currentLatest || new Date(item.date) > new Date(currentLatest)) {
+                        latestDates.set(t.phone, item.date);
+                      }
+                    });
+                  }
+                });
+              }
+            } catch (error) {
+              console.error('SMS 이력 로드 실패:', error);
+            }
+          }
+
+          const mappedMembers = membersData.map((m: Member) => {
+            let formattedDate = '';
+            if (m.phone && latestDates.has(m.phone)) {
+              const rawDate = new Date(latestDates.get(m.phone)!);
+              formattedDate = `${rawDate.getFullYear()}-${String(rawDate.getMonth() + 1).padStart(2, '0')}-${String(rawDate.getDate()).padStart(2, '0')}`;
+            }
+            return { ...m, '최근발송일': formattedDate || '-' };
+          });
+          
+          setMembers(mappedMembers);
+        }
+      }
+    };
+    
+    loadData();
   }, []);
 
   // 설정 저장 처리
@@ -69,13 +104,19 @@ export function useMembers() {
     [members],
   );
 
+  // 위치명으로 필터링된 멤버
+  const locationFilteredMembers = useMemo(() => {
+    if (activeLocation === '전체') return members;
+    return members.filter(m => String(m['위치명'] || '미지정').trim() === activeLocation);
+  }, [members, activeLocation]);
+
   // 통계 계산
   const stats = useMemo(() => {
-    const total = members.length;
+    const total = locationFilteredMembers.length;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const counts = members.reduce(
+    const counts = locationFilteredMembers.reduce(
       (acc, m) => {
         const lastPaymentMonth = m['최종납부월'];
 
@@ -107,7 +148,7 @@ export function useMembers() {
     );
 
     return { total, expired: counts.expired, twoWeeks: counts.twoWeeks, oneMonth: counts.oneMonth };
-  }, [members, settings.warningDays, settings.criticalDays]);
+  }, [locationFilteredMembers, settings.warningDays, settings.criticalDays]);
 
 
   // 엑셀 내보내기 처리
@@ -115,10 +156,64 @@ export function useMembers() {
     exportToExcel(members);
   }, [members]);
 
+  // 모든 지점별 통계 일괄 계산
+  const locationStats = useMemo(() => {
+    const statsMap: Record<string, { total: number; expired: number; twoWeeks: number; oneMonth: number; active: number }> = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    statsMap['전체'] = { total: 0, expired: 0, twoWeeks: 0, oneMonth: 0, active: 0 };
+
+    members.forEach((m) => {
+      const loc = String(m['위치명'] || '미지정').trim();
+      if (!statsMap[loc]) {
+        statsMap[loc] = { total: 0, expired: 0, twoWeeks: 0, oneMonth: 0, active: 0 };
+      }
+
+      const lastPaymentMonth = m['최종납부월'];
+      let targetDate: Date | null = null;
+      let diffDays = 0;
+
+      if (lastPaymentMonth && lastPaymentMonth !== '-') {
+        const [yearStr, monthStr] = String(lastPaymentMonth).split('-');
+        if (yearStr && monthStr) {
+          const year = parseInt(yearStr, 10);
+          const month = parseInt(monthStr, 10);
+          targetDate = new Date(year, month, 0);
+          targetDate.setHours(23, 59, 59, 999);
+          diffDays = Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        }
+      }
+
+      const updateStats = (target: { total: number; expired: number; twoWeeks: number; oneMonth: number; active: number }) => {
+        target.total += 1;
+        if (!targetDate) {
+          target.active += 1;
+        } else if (diffDays < 0) {
+          target.expired += 1;
+        } else if (diffDays <= settings.criticalDays) {
+          target.twoWeeks += 1;
+          target.active += 1; // 2주전도 일단 활동중
+        } else if (diffDays <= settings.warningDays) {
+          target.oneMonth += 1;
+          target.active += 1; // 1달전도 활동중
+        } else {
+          target.active += 1;
+        }
+      };
+
+      updateStats(statsMap[loc]);
+      updateStats(statsMap['전체']);
+    });
+
+    return statsMap;
+  }, [members, settings.warningDays, settings.criticalDays]);
+
   return {
     members,
     setMembers,
     stats,
+    locationStats,
     handleUpload,
     handleDeleteMembers,
     handleExportExcel,

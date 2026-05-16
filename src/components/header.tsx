@@ -1,10 +1,10 @@
 import { CalendarClock, Check, Clock, Settings as SettingsIcon, ShieldCheck, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Settings } from '../types/member';
+import { AutoSmsSettingsModal } from './ui/autoSmsSettingsModal';
 import { Button } from './ui/button';
 import { ConfirmModal } from './ui/confirmModal';
 import { Input } from './ui/input';
-import { AutoSmsSettingsModal } from './ui/autoSmsSettingsModal';
 
 interface Props {
   onUpload: (file: File, mode: 'append' | 'overwrite') => void;
@@ -29,32 +29,18 @@ const colorOptions = [
 ];
 
 export default function Header({ onUpload, onExportExcel, settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance }: Props) {
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAutoSmsModalOpen, setIsAutoSmsModalOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [editSettings, setEditSettings] = useState<Settings>(settings);
   const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; isAlert?: boolean; onConfirm: () => void } | null>(null);
-  const settingsRef = useRef<HTMLDivElement>(null);
 
   // 현재 설정값을 편집용 상태에 동기화
   useEffect(() => {
     setEditSettings(settings);
   }, [settings]);
 
-  // 외부 클릭 시 팝오버 닫기
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
-        setIsSettingsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
   const handleBackupClick = () => {
-    setIsSettingsOpen(false);
     if (!hasMembers) {
       setModalState({
         isOpen: true,
@@ -82,76 +68,22 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
   };
 
   return (
-    <div className="relative flex items-center justify-between">
-      {/* 제목 */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-700 to-slate-900 bg-clip-text text-transparent">신도관리 시스템</h1>
-      </div>
+    <div className="relative">
+      {/* 우측 상단 솔라피 잔액 고정 표시 */}
+      {solapiBalance !== undefined && solapiBalance !== null && (
+        <div className="absolute -top-4 right-0 flex items-center justify-center bg-blue-50 border border-blue-200 rounded-full px-4 py-1.5 shadow-sm">
+          <span className="text-sm font-extrabold text-blue-700 tracking-tight">문자 잔액: {solapiBalance.toLocaleString()}원</span>
+        </div>
+      )}
 
-
-
-      {/* 설정 아이콘 및 팝오버 */}
-      <div className="absolute -top-5 -right-1" ref={settingsRef}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-slate-400 hover:text-slate-700 hover:bg-slate-100/50 rounded-full h-12 w-12"
-          onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-        >
-          <SettingsIcon className={`w-8 h-8 transition-transform duration-500 ${isSettingsOpen ? 'rotate-90 text-slate-800' : ''}`} />
-        </Button>
-
-        {/* 솔라피 잔액 표시 */}
-        {solapiBalance !== undefined && solapiBalance !== null && (
-          <div className="absolute top-2 right-16 flex items-center justify-center bg-blue-50 border border-blue-100 rounded-full px-3 py-1 shadow-sm whitespace-nowrap">
-            <span className="text-xs font-medium text-blue-700">문자발송 잔액: {solapiBalance.toLocaleString()}원</span>
-          </div>
-        )}
-
-        {isSettingsOpen && (
-          <div className="absolute right-0 mt-1 w-56 bg-white rounded-xl shadow-2xl border border-slate-100 py-2 z-[100] animate-in fade-in zoom-in duration-200 origin-top-right">
-            <div className="px-4 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-50 mb-1">시스템 설정</div>
-            <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group"
-              onClick={() => {
-                setIsSettingsOpen(false);
-                setIsModalOpen(true);
-              }}
-            >
-              <CalendarClock className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" />
-              <span>만료 알림 및 색상 설정</span>
-            </button>
-            <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group"
-              onClick={() => {
-                setIsSettingsOpen(false);
-                setIsAutoSmsModalOpen(true);
-              }}
-            >
-              <Clock className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
-              <span>자동 발송 설정</span>
-            </button>
-            <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group border-t border-slate-50 mt-1"
-              onClick={() => {
-                setIsSettingsOpen(false);
-                onOpenSolapiSetup();
-              }}
-            >
-              <ShieldCheck className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
-              <span>문자 연동 설정</span>
-            </button>
-            <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group border-t border-slate-50 mt-1"
-              onClick={() => {
-                setIsSettingsOpen(false);
-                onOpenSmsHistory();
-              }}
-            >
-              <Clock className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
-              <span>문자 발송 이력</span>
-            </button>
-            <label className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group border-t border-slate-50 mt-1 cursor-pointer">
+      {/* 헤더 메뉴바 영역 */}
+      <div className="flex flex-wrap items-center justify-start w-full gap-5 pb-4 mb-6 mt-2 border-b border-slate-100">
+        
+        {/* 데이터 관리 박스 */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold text-slate-500 px-1">데이터 관리</span>
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm p-1">
+            <label className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors cursor-pointer group">
               <input
                 type="file"
                 accept=".xlsx"
@@ -160,21 +92,68 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
                   const file = e.target.files?.[0];
                   if (file) setPendingFile(file);
                   e.target.value = ''; 
-                  setIsSettingsOpen(false);
                 }}
               />
               <Upload className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
               <span>엑셀 업로드</span>
             </label>
+            <div className="w-px h-6 bg-slate-200 mx-1"></div>
             <button
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors group border-t border-slate-50 mt-1"
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
               onClick={handleBackupClick}
             >
               <ShieldCheck className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" />
               <span>회원 백업</span>
             </button>
           </div>
-        )}
+        </div>
+
+        {/* 시스템 설정 박스 */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold text-slate-500 px-1">시스템 설정</span>
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm p-1">
+            <button
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={() => setIsModalOpen(true)}
+            >
+              <CalendarClock className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" />
+              <span>만료 알림 색상 설정</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 문자 관리 박스 */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold text-slate-500 px-1 flex items-center gap-2">
+            문자 관리
+          </span>
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm p-1">
+            <button
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={() => setIsAutoSmsModalOpen(true)}
+            >
+              <Clock className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
+              <span>자동 발송 설정</span>
+            </button>
+            <div className="w-px h-6 bg-slate-200 mx-1"></div>
+            <button
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={onOpenSolapiSetup}
+            >
+              <ShieldCheck className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
+              <span>문자 연동 설정</span>
+            </button>
+            <div className="w-px h-6 bg-slate-200 mx-1"></div>
+            <button
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={onOpenSmsHistory}
+            >
+              <Clock className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
+              <span>발송 이력</span>
+            </button>
+          </div>
+        </div>
+
       </div>
 
       <AutoSmsSettingsModal 

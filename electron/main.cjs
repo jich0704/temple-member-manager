@@ -40,6 +40,7 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
+    icon: path.join(__dirname, '../public/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -49,6 +50,8 @@ function createWindow() {
     minWidth: 800,
     minHeight: 800,
   });
+
+  win.maximize(); // 실행 시 창 최대화
 
   if (app.isPackaged) {
     const indexPath = path.join(process.resourcesPath, 'app', 'dist', 'index.html');

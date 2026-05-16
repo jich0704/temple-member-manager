@@ -60,7 +60,7 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
 
   const [activeColumns, setActiveColumns] = useState<string[]>([
     '위치명', '등록일', '신도번호', '대주', 
-    '영가여부', '동참자', '생일', '휴대폰', 'DM', '가족순서', '최종납부월'
+    '영가여부', '동참자', '생일', '휴대폰', 'DM', '가족순서', '최종납부월', '최근발송일'
   ]);
 
   // 필터링 (activeFilter는 대시보드에서 이미 처리되어 내려오지만 추가적인 검색 등이 있다면 여기서 처리 가능)
