@@ -4,7 +4,7 @@ import type { SendSMSPayload } from '../types/member';
 /*
  * SMS 발송 관련 + 외부API 연동
  */
-export function useSMS() {
+export const useSMS = () => {
   const [isSending, setIsSending] = useState(false);
 
   const sendSMS = async (payload: SendSMSPayload) => {

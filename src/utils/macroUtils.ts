@@ -3,7 +3,7 @@
  * @param members 회원 데이터 배열 (첫 번째 객체를 기준으로 키를 추출)
  * @returns 추출된 키 배열 (예: ['대주', '동참자', '신도번호', '최종납부월', '등록일'])
  */
-export function getAvailableMacroKeys(members: any[]): string[] {
+export const getAvailableMacroKeys = (members: any[]): string[] => {
   if (!members || members.length === 0) return [];
   return Object.keys(members[0]).filter(k => k !== 'index' && k !== 'status' && k !== 'name' && k !== 'phone');
 }

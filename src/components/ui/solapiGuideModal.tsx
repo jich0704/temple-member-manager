@@ -6,7 +6,7 @@ interface SolapiGuideModalProps {
   onClose: () => void;
 }
 
-export function SolapiGuideModal({ isOpen, onClose }: SolapiGuideModalProps) {
+export const SolapiGuideModal = ({ isOpen, onClose }: SolapiGuideModalProps) => {
   if (!isOpen) return null;
 
   const handleOpenLink = (url: string) => {

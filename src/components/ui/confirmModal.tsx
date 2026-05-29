@@ -10,7 +10,7 @@ interface ConfirmModalProps {
   isAlert?: boolean;
 }
 
-export function ConfirmModal({ isOpen, title, message, onConfirm, onCancel, isAlert = false }: ConfirmModalProps) {
+export const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, isAlert = false }: ConfirmModalProps) => {
   if (!isOpen) return null;
 
   return (

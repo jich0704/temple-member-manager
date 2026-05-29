@@ -13,4 +13,20 @@ contextBridge.exposeInMainWorld('api', {
   clearSmsHistory: () => ipcRenderer.invoke('clear-sms-history'),
   getAutoSmsConfig: () => ipcRenderer.invoke('get-auto-sms-config'),
   saveAutoSmsConfig: (config) => ipcRenderer.invoke('save-auto-sms-config', config),
+  selectMdbFile: () => ipcRenderer.invoke('select-mdb-file'),
+  getMdbConfig: () => ipcRenderer.invoke('get-mdb-config'),
+  saveMdbConfig: (config) => ipcRenderer.invoke('save-mdb-config', config),
+  testMdbConnection: (config) => ipcRenderer.invoke('test-mdb-connection', config),
+  syncMdbNow: (config) => ipcRenderer.invoke('sync-mdb-now', config),
+  getMdbSyncStatus: () => ipcRenderer.invoke('get-mdb-sync-status'),
+  onMdbSyncStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('mdb-sync-status', listener);
+    return () => ipcRenderer.removeListener('mdb-sync-status', listener);
+  },
+  clearMdbData: () => ipcRenderer.invoke('clear-mdb-data'),
+  getMembersPage: (options) => ipcRenderer.invoke('get-members-page', options),
+  getLocationStats: (options) => ipcRenderer.invoke('get-location-stats', options),
+  getMdbSyncLogs: (options) => ipcRenderer.invoke('get-mdb-sync-logs', options),
+  clearMdbSyncLogs: () => ipcRenderer.invoke('clear-mdb-sync-logs'),
 });

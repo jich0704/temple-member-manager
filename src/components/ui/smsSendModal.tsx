@@ -25,7 +25,7 @@ const getByteLength = (str: string) => {
   return byteLength;
 };
 
-export function SmsSendModal({ isOpen, onClose, targets, onSend, isSending, onAlert }: SmsSendModalProps) {
+export const SmsSendModal = ({ isOpen, onClose, targets, onSend, isSending, onAlert }: SmsSendModalProps) => {
   const [message, setMessage] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);

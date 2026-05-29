@@ -11,7 +11,7 @@ interface StatsSectionProps {
   onFilterChange: (filter: FilterType) => void;
 }
 
-export default function StatsSection({ stats, activeFilter, onFilterChange }: StatsSectionProps) {
+const StatsSection = ({ stats, activeFilter, onFilterChange }: StatsSectionProps) => {
   const [isStatsCollapsed, setIsStatsCollapsed] = useState(false);
 
   const handleCardClick = (filter: FilterType) => {
@@ -83,3 +83,6 @@ export default function StatsSection({ stats, activeFilter, onFilterChange }: St
     </>
   );
 }
+
+
+export default StatsSection;

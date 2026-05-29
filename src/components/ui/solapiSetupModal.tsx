@@ -14,7 +14,7 @@ interface SolapiSetupModalProps {
   onSuccess?: () => void;
 }
 
-export function SolapiSetupModal({ isOpen, onClose, settings, onSaveSettings, onSuccess }: SolapiSetupModalProps) {
+export const SolapiSetupModal = ({ isOpen, onClose, settings, onSaveSettings, onSuccess }: SolapiSetupModalProps) => {
   const [apiKey, setApiKey] = useState(settings.solapiApiKey || '');
   const [apiSecret, setApiSecret] = useState(settings.solapiApiSecret || '');
   const [senderNumber, setSenderNumber] = useState(settings.solapiSenderNumber || '');

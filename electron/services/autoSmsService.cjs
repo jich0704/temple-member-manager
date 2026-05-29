@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const coolsms = require('coolsms-node-sdk').default;
 
-module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory) {
+module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory, memberRepository) {
   ipcMain.handle('get-auto-sms-config', () => {
     return store.get('autoSmsConfig') || null;
   });
@@ -55,8 +55,9 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
     }
 
     const messageService = new coolsms(settings.solapiApiKey, settings.solapiApiSecret);
-    const rawMembers = store.get('members') || {};
-    const members = Array.isArray(rawMembers) ? rawMembers : Object.values(rawMembers);
+    const members = memberRepository
+      ? memberRepository.loadAll()
+      : (Array.isArray(store.get('members') || {}) ? store.get('members') || [] : Object.values(store.get('members') || {}));
     
     if (members.length === 0) return;
 
@@ -73,6 +74,10 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
       let validTargets = [];
 
       for (const member of members) {
+        // 위치별 발송 설정 확인 (true로 명시된 경우에만 발송, 기본=미발송)
+        const memberLoc = String(member['위치명'] || '').trim();
+        if (!config.locationEnabled || config.locationEnabled[memberLoc] !== true) continue;
+
         const expireStr = member['최종납부월'] || member['납부만료월'] || '';
         if (!expireStr) continue;
 

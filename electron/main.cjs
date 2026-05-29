@@ -5,9 +5,12 @@ const Store = require('electron-store').default;
 const setupMemberService = require('./services/memberService.cjs');
 const setupSmsService = require('./services/smsService.cjs');
 const setupAutoSmsService = require('./services/autoSmsService.cjs');
+const setupMdbService = require('./services/mdbService.cjs');
+const createMemberRepository = require('./services/memberRepository.cjs');
 
 let store;
 let settingsStore;
+let memberRepository;
 
 const initStore = () => {
   store = new Store({
@@ -31,6 +34,14 @@ const initStore = () => {
 
   console.log('Store path:', store.path);
   console.log('Settings path:', settingsStore.path);
+
+  memberRepository = createMemberRepository(app.getPath('userData'));
+  const migration = memberRepository.migrateFromStore(store);
+  if (migration.migrated) {
+    console.log(`Migrated ${migration.count} legacy members to SQLite:`, memberRepository.dbPath);
+  } else {
+    console.log('SQLite member DB:', memberRepository.dbPath);
+  }
 };
 
 console.log('dirname:', __dirname);
@@ -65,9 +76,10 @@ app.whenReady().then(() => {
   initStore();
   
   // 각종 서비스 초기화 및 IPC 핸들러 등록
-  setupMemberService(ipcMain, store);
+  setupMemberService(ipcMain, memberRepository);
   const { saveSmsHistory } = setupSmsService(ipcMain, settingsStore, app);
-  setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory);
+  setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory, memberRepository);
+  setupMdbService(ipcMain, memberRepository, settingsStore, app);
 
   ipcMain.handle('open-external', async (_, url) => {
     await shell.openExternal(url);
@@ -86,6 +98,10 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+
+  app.on('before-quit', () => {
+    if (memberRepository) memberRepository.close();
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

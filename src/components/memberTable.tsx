@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,24 +29,53 @@ import type { Member, Settings } from '../types/member';
 
 interface Props {
   members: Member[];
+  totalCount: number;
+  totalPages: number;
+  currentPage: number;
+  itemsPerPage: number;
+  isLoading?: boolean;
+  sortConfig: { key: string; direction: 'asc' | 'desc' } | null;
+  onPageChange: (page: number) => void;
+  onItemsPerPageChange: (val: number) => void;
+  onSortChange: (key: string, direction: 'asc' | 'desc' | null) => void;
+  onSearchChange: (query: string) => void;
   onDeleteMembers: (ids: string[]) => void;
   onSendSelected?: (members: Member[]) => void;
   settings: Settings;
 }
 
-export default function MemberTable({ members, onDeleteMembers, onSendSelected, settings }: Props) {
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(50);
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: '인등번호', direction: 'desc' });
+const MemberTable = ({ 
+  members, totalCount, totalPages, currentPage, itemsPerPage, isLoading = false, sortConfig,
+  onPageChange, onItemsPerPageChange, onSortChange, onSearchChange,
+  onDeleteMembers, onSendSelected, settings 
+}: Props) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+  const [localSearch, setLocalSearch] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 페이지/데이터 바뀔 때 스크롤 최상단으로
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [currentPage, itemsPerPage, isLoading]);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onSearchChange(localSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localSearch]);
 
   // 컬럼 설정 (기본적으로 모든 키를 표시하되 관리에 필요한 이름, 전화번호 우선)
   // 실제 엑셀 데이터의 키 값들을 동적으로 추출
   const dynamicHeaders = useMemo(() => {
     if (!members || members.length === 0) return [];
-    // 모든 멤버의 키를 합쳐서 중복 제거 (엑셀 데이터의 원래 순서가 유지됨)
     const allKeys = new Set<string>();
+    // Since 'members' is just the paginated list (e.g. 50 items), we can safely iterate
     members.forEach((m) => {
       Object.keys(m).forEach((k) => {
         if (!['index', 'status', 'name', 'phone'].includes(k)) {
@@ -54,7 +83,6 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
         }
       });
     });
-    
     return Array.from(allKeys);
   }, [members]);
 
@@ -64,41 +92,16 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
   ]);
 
   // 필터링 (activeFilter는 대시보드에서 이미 처리되어 내려오지만 추가적인 검색 등이 있다면 여기서 처리 가능)
-  const filteredMembers = members || []; 
-
   const handleSort = (key: string) => {
-    setSortConfig((prev) => {
-      if (prev?.key === key) {
-        if (prev.direction === 'asc') return { key, direction: 'desc' };
-        return null; // 3번째 클릭 시 정렬 해제 (기본 상태)
-      }
-      return { key, direction: 'asc' }; // 처음 클릭 시 오름차순
-    });
+    if (sortConfig?.key === key) {
+      if (sortConfig.direction === 'asc') onSortChange(key, 'desc');
+      else onSortChange(key, null); // reset
+    } else {
+      onSortChange(key, 'asc');
+    }
   };
 
-  // 필터링된 데이터를 기준으로 정렬 수행
-  const sortedMembers = useMemo(() => {
-    const sortableItems = [...filteredMembers];
-
-    if (sortConfig !== null) {
-      sortableItems.sort((a, b) => {
-        const aValue = String(a[sortConfig.key] ?? '');
-        const bValue = String(b[sortConfig.key] ?? '');
-
-        const compareResult = aValue.localeCompare(bValue, 'ko', { numeric: true });
-
-        // 오름차순(asc)이면 그대로, 내림차순(desc)이면 결과를 뒤집어줍니다(-).
-        return sortConfig.direction === 'asc' ? compareResult : -compareResult;
-      });
-    }
-    return sortableItems;
-  }, [filteredMembers, sortConfig]);
-
-  const totalPages = Math.ceil(sortedMembers.length / itemsPerPage);
-  const paginatedMembers = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return sortedMembers.slice(startIndex, startIndex + itemsPerPage);
-  }, [sortedMembers, currentPage, itemsPerPage]);
+  const paginatedMembers = members || [];
 
   const isAllSelected = paginatedMembers.length > 0 && paginatedMembers.every((m) => selectedIds.has(String(m.index)));
 
@@ -131,16 +134,15 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
   };
 
   const handlePageChange = (page: number) => {
-    setCurrentPage(page);
+    onPageChange(page);
   };
 
   const handleItemsPerPageChange = (val: string) => {
-    setItemsPerPage(Number(val));
-    setCurrentPage(1);
+    onItemsPerPageChange(Number(val));
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full flex-col font-sans w-full min-w-0">
       {/* --- 테이블 상단 툴바 --- */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
         <div className="flex items-center gap-4">
@@ -155,7 +157,7 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
                 size="sm" 
                 onClick={() => {
                   if (onSendSelected) {
-                    const targets = sortedMembers.filter(m => selectedIds.has(String(m.index)));
+                    const targets = paginatedMembers.filter(m => selectedIds.has(String(m.index)));
                     onSendSelected(targets);
                   }
                 }} 
@@ -170,9 +172,16 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
           )}
         </div>
         <div className="flex items-center gap-2">
+          <input 
+            type="text" 
+            placeholder="이름 또는 전화번호 검색..." 
+            value={localSearch}
+            className="h-9 px-3 text-sm border rounded-md min-w-[200px]"
+            onChange={(e) => setLocalSearch(e.target.value)}
+          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9 gap-2">
+              <Button variant="outline" size="sm" className="h-9 gap-2" disabled={!members || members.length === 0}>
                 <Settings2 className="h-4 w-4" />
                 컬럼 선택
               </Button>
@@ -217,7 +226,19 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
       </div>
 
       {/* --- 테이블 리스트 --- */}
-      <div className="flex-1 overflow-auto relative">
+      <div ref={scrollRef} className="flex-1 overflow-auto relative">
+        {/* 로딩 오버레이 */}
+        {isLoading && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-white/70 backdrop-blur-[2px]">
+            <div className="flex flex-col items-center gap-3">
+              <div className="relative w-12 h-12">
+                <div className="absolute inset-0 rounded-full border-4 border-slate-200"></div>
+                <div className="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
+              </div>
+              <span className="text-sm font-medium text-slate-500 animate-pulse">데이터 불러오는 중...</span>
+            </div>
+          </div>
+        )}
         <div className="min-w-[1600px] w-full">
           {/* --- 동적 테이블 헤더 (Sticky) --- */}
           <div className="sticky top-0 z-10 flex h-12 items-center border-b bg-gray-50 px-6 font-semibold shadow-sm">
@@ -236,9 +257,9 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
                   </div>
                 );
               })}
-            <div className="w-32 shrink-0 flex justify-center text-gray-700">상태</div>
-            <div className="w-20 shrink-0 flex justify-center text-gray-700">SMS</div>
-            <div className="w-20 shrink-0 flex justify-center text-gray-700">삭제</div>
+            <div className="w-32 shrink-0 flex justify-end pr-6 text-gray-700 ml-auto">상태</div>
+            <div className="w-16 shrink-0 flex justify-end pr-4 text-gray-700">SMS</div>
+            <div className="w-16 shrink-0 flex justify-end pr-6 text-gray-700">삭제</div>
           </div>
 
           {(!members || members.length === 0) ? (
@@ -268,7 +289,7 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
                     })}
 
                   {/* 상태 선택 및 디데이 뱃지 */}
-                  <div className="flex w-32 shrink-0 justify-center">
+                  <div className="flex w-32 shrink-0 justify-end pr-6 ml-auto">
                     <StatusDisplay 
                         status={String(m.status)} 
                         lastPaymentMonth={m['최종납부월'] ? String(m['최종납부월']) : undefined} 
@@ -277,7 +298,7 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
                   </div>
 
                   {/* 삭제 버튼 등 */}
-                  <div className="flex w-20 shrink-0 justify-center gap-2">
+                  <div className="flex w-16 shrink-0 justify-end pr-4">
                      <Button 
                        size="icon" 
                        variant="ghost" 
@@ -290,7 +311,7 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
                         💬
                      </Button>
                   </div>
-                  <div className="flex w-20 shrink-0 justify-center">
+                  <div className="flex w-16 shrink-0 justify-end pr-6">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -323,7 +344,7 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
       {totalPages > 0 && (
         <div className="px-6 py-4 border-t bg-gray-50/50 flex items-center justify-between">
           <div className="text-sm text-gray-500">
-            총 <span className="font-semibold text-gray-700">{sortedMembers.length}</span>명 중 {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, sortedMembers.length)} 표시
+            총 <span className="font-semibold text-gray-700">{totalCount}</span>명 중 {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, totalCount)} 표시
           </div>
           <div className="flex items-center gap-4">
             <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1}>
@@ -372,12 +393,12 @@ export default function MemberTable({ members, onDeleteMembers, onSendSelected, 
 // ----------------------------------------------------
 const StatusDisplay = ({ status, lastPaymentMonth, settings }: { status: string; lastPaymentMonth?: string; settings: Settings }) => {
   if (!lastPaymentMonth || lastPaymentMonth === '-' || lastPaymentMonth.trim() === '') {
-    return <StatusBadge text={status} colorClass={status === '비활동' ? 'from-gray-400 to-gray-500' : settings.safeColor} />;
+    return <StatusBadge text={status} colorClass={status === '비활동' || status === '종료' ? settings.expiredColor : settings.safeColor} />;
   }
 
   const [yearStr, monthStr] = lastPaymentMonth.split('-');
   if (!yearStr || !monthStr) {
-    return <StatusBadge text={status} colorClass="from-gray-400 to-gray-500" />;
+    return <StatusBadge text={status} colorClass={settings.expiredColor} />;
   }
 
   const year = parseInt(yearStr, 10);
@@ -395,8 +416,8 @@ const StatusDisplay = ({ status, lastPaymentMonth, settings }: { status: string;
   let colorClass = '';
 
   if (daysLeft < 0) {
-    resultText = '비활동';
-    colorClass = 'from-gray-400 to-gray-500';
+    resultText = '종료';
+    colorClass = settings.expiredColor;
   } else if (daysLeft <= settings.criticalDays) {
     resultText = '활동';
     colorClass = settings.criticalColor;
@@ -419,3 +440,6 @@ const StatusDisplay = ({ status, lastPaymentMonth, settings }: { status: string;
 const StatusBadge = ({ text, colorClass }: { text: string; colorClass: string }) => {
   return <Badge className={`border-0 bg-gradient-to-r ${colorClass} text-white hover:opacity-90`}>{text}</Badge>;
 };
+
+
+export default MemberTable;

@@ -3,8 +3,16 @@ export type MemberStatus = '활동' | '비활동';
 export interface Member {
   name?: string;
   phone?: string;
-  status: MemberStatus;
+  status: MemberStatus | string;
   index?: number;
+  source?: string;
+  sourceKey?: string;
+  mdbReceiveMemberId?: number;
+  mdbReceiveId?: number;
+  mdbMemberId?: number;
+  mdbLocId?: number;
+  mdbUpdatedAt?: string;
+  mdbDeleted?: boolean | string | number;
   [key: string]: string | number | boolean | undefined;
 }
 
@@ -45,6 +53,7 @@ export interface Settings {
   criticalDays: number;
   warningColor: string;
   criticalColor: string;
+  expiredColor: string;
   safeColor: string;
   solapiApiKey?: string;
   solapiApiSecret?: string;

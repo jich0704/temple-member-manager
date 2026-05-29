@@ -1,20 +1,22 @@
-import { CalendarClock, Check, Clock, Settings as SettingsIcon, ShieldCheck, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { CalendarClock, Check, Clock, Database, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { Settings } from '../types/member';
 import { AutoSmsSettingsModal } from './ui/autoSmsSettingsModal';
 import { Button } from './ui/button';
 import { ConfirmModal } from './ui/confirmModal';
 import { Input } from './ui/input';
+import { MdbSyncModal } from './ui/mdbSyncModal';
+import { MdbSyncLogsModal } from './ui/mdbSyncLogsModal';
 
 interface Props {
-  onUpload: (file: File, mode: 'append' | 'overwrite') => void;
-  onExportExcel: () => void;
   settings: Settings;
   onUpdateSettings: (settings: Settings) => void;
   hasMembers: boolean;
   onOpenSolapiSetup: () => void;
   onOpenSmsHistory: () => void;
   solapiBalance?: number | null;
+  onMdbSynced: () => void;
+  locations?: string[];
 }
 
 const colorOptions = [
@@ -28,10 +30,12 @@ const colorOptions = [
   { name: '그레이', value: 'from-slate-500 to-slate-600' },
 ];
 
-export default function Header({ onUpload, onExportExcel, settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance }: Props) {
+const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance, onMdbSynced, locations = [] }: Props) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAutoSmsModalOpen, setIsAutoSmsModalOpen] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [isMdbModalOpen, setIsMdbModalOpen] = useState(false);
+  const [isMdbLogsModalOpen, setIsMdbLogsModalOpen] = useState(false);
+
   const [editSettings, setEditSettings] = useState<Settings>(settings);
   const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; isAlert?: boolean; onConfirm: () => void } | null>(null);
 
@@ -39,28 +43,6 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
   useEffect(() => {
     setEditSettings(settings);
   }, [settings]);
-
-  const handleBackupClick = () => {
-    if (!hasMembers) {
-      setModalState({
-        isOpen: true,
-        title: '알림',
-        message: '내보낼 데이터가 없습니다.',
-        isAlert: true,
-        onConfirm: () => setModalState(null)
-      });
-      return;
-    }
-    setModalState({
-      isOpen: true,
-      title: '회원 백업',
-      message: '현재 회원목록을 엑셀 파일로 다운로드 하시겠습니까?',
-      onConfirm: () => {
-        onExportExcel();
-        setModalState(null);
-      }
-    });
-  };
 
   const handleSaveSettings = () => {
     onUpdateSettings(editSettings);
@@ -77,33 +59,26 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
       )}
 
       {/* 헤더 메뉴바 영역 */}
-      <div className="flex flex-wrap items-center justify-start w-full gap-5 pb-4 mb-6 mt-2 border-b border-slate-100">
+      <div className="flex flex-wrap items-center justify-start w-full gap-4 pb-2 mb-2 border-b border-slate-100">
         
         {/* 데이터 관리 박스 */}
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-bold text-slate-500 px-1">데이터 관리</span>
           <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm p-1">
-            <label className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors cursor-pointer group">
-              <input
-                type="file"
-                accept=".xlsx"
-                hidden
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) setPendingFile(file);
-                  e.target.value = ''; 
-                }}
-              />
-              <Upload className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
-              <span>엑셀 업로드</span>
-            </label>
-            <div className="w-px h-6 bg-slate-200 mx-1"></div>
             <button
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
-              onClick={handleBackupClick}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={() => setIsMdbModalOpen(true)}
             >
-              <ShieldCheck className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform" />
-              <span>회원 백업</span>
+              <Database className="w-3.5 h-3.5 text-slate-500 group-hover:scale-110 transition-transform" />
+              <span>MDB 연동</span>
+            </button>
+            <div className="w-px h-4 bg-slate-200 mx-1"></div>
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={() => setIsMdbLogsModalOpen(true)}
+            >
+              <Clock className="w-3.5 h-3.5 text-slate-500 group-hover:scale-110 transition-transform" />
+              <span>동기화 이력</span>
             </button>
           </div>
         </div>
@@ -113,11 +88,11 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
           <span className="text-xs font-bold text-slate-500 px-1">시스템 설정</span>
           <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm p-1">
             <button
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
               onClick={() => setIsModalOpen(true)}
             >
-              <CalendarClock className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform" />
-              <span>만료 알림 색상 설정</span>
+              <CalendarClock className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
+              <span>상태 표시 색상 설정</span>
             </button>
           </div>
         </div>
@@ -129,26 +104,26 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
           </span>
           <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm p-1">
             <button
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
               onClick={() => setIsAutoSmsModalOpen(true)}
             >
-              <Clock className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
+              <Clock className="w-3.5 h-3.5 text-indigo-500 group-hover:scale-110 transition-transform" />
               <span>자동 발송 설정</span>
             </button>
-            <div className="w-px h-6 bg-slate-200 mx-1"></div>
+            <div className="w-px h-4 bg-slate-200 mx-1"></div>
             <button
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
               onClick={onOpenSolapiSetup}
             >
-              <ShieldCheck className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
+              <ShieldCheck className="w-3.5 h-3.5 text-indigo-500 group-hover:scale-110 transition-transform" />
               <span>문자 연동 설정</span>
             </button>
-            <div className="w-px h-6 bg-slate-200 mx-1"></div>
+            <div className="w-px h-4 bg-slate-200 mx-1"></div>
             <button
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
               onClick={onOpenSmsHistory}
             >
-              <Clock className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
+              <Clock className="w-3.5 h-3.5 text-indigo-500 group-hover:scale-110 transition-transform" />
               <span>발송 이력</span>
             </button>
           </div>
@@ -156,148 +131,83 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
 
       </div>
 
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <CalendarClock className="w-5 h-5 text-blue-500" />
+                상태 표시 색상 설정
+              </h2>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
+              {[
+                { key: 'safeColor', label: '사용중 (안전)', desc: '만료가 한 달 이상 남은 상태' },
+                { key: 'warningColor', label: '1달 전 (주의)', desc: '만료가 1개월 이내로 남은 상태' },
+                { key: 'criticalColor', label: '2주 전 (위험)', desc: '만료가 2주 이내로 임박한 상태' },
+                { key: 'expiredColor', label: '종료 (만료)', desc: '이미 기간이 만료된 상태' }
+              ].map((setting) => (
+                <div key={setting.key} className="space-y-3">
+                  <div>
+                    <div className="font-semibold text-slate-800">{setting.label}</div>
+                    <div className="text-xs text-slate-500">{setting.desc}</div>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {colorOptions.map(color => (
+                      <button
+                        key={color.value}
+                        onClick={() => setEditSettings({ ...editSettings, [setting.key]: color.value })}
+                        className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border-2 transition-all ${
+                          (editSettings as any)[setting.key] === color.value 
+                            ? 'border-blue-500 bg-blue-50 shadow-sm scale-[1.02]' 
+                            : 'border-slate-100 hover:border-blue-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${color.value} shadow-sm flex items-center justify-center`}>
+                          {(editSettings as any)[setting.key] === color.value && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <span className={`text-[10px] font-semibold ${(editSettings as any)[setting.key] === color.value ? 'text-blue-700' : 'text-slate-600'}`}>
+                          {color.name}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setIsModalOpen(false)}>
+                취소
+              </Button>
+              <Button className="bg-slate-900 hover:bg-slate-800 text-white" onClick={handleSaveSettings}>
+                저장하기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <AutoSmsSettingsModal 
         isOpen={isAutoSmsModalOpen} 
-        onClose={() => setIsAutoSmsModalOpen(false)} 
+        onClose={() => setIsAutoSmsModalOpen(false)}
+        locations={locations.filter(l => l !== '전체')}
       />
 
-      {/* 설정 모달 */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in slide-in-from-bottom-4 duration-300">
-            <div className="px-6 py-4 border-b flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-2">
-                <CalendarClock className="w-5 h-5 text-blue-600" />
-                <h2 className="text-lg font-bold text-slate-800">만료 알림 및 색상 설정</h2>
-              </div>
-              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8" onClick={() => setIsModalOpen(false)}>
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-
-            <div className="p-6 space-y-8">
-              {/* 경고 알림 (Warning) */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-slate-700">⚠️ 만료 예정 알림 (D-Day)</label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      className="w-16 h-8 text-center"
-                      value={editSettings.warningDays}
-                      onChange={(e) => setEditSettings({ ...editSettings, warningDays: Number(e.target.value) })}
-                    />
-                    <span className="text-sm text-slate-500">일 전</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {colorOptions.map((opt) => (
-                    <button
-                      key={opt.value}
-                      className={`h-8 rounded-lg bg-gradient-to-r ${opt.value} border-2 transition-all ${
-                        editSettings.warningColor === opt.value ? 'border-slate-800 scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'
-                      }`}
-                      onClick={() => setEditSettings({ ...editSettings, warningColor: opt.value })}
-                      title={opt.name}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* 위험 알림 (Critical) */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-semibold text-slate-700">🚨 긴급 만료 알림 (D-Day)</label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      className="w-16 h-8 text-center"
-                      value={editSettings.criticalDays}
-                      onChange={(e) => setEditSettings({ ...editSettings, criticalDays: Number(e.target.value) })}
-                    />
-                    <span className="text-sm text-slate-500">일 전</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {colorOptions.map((opt) => (
-                    <button
-                      key={opt.value}
-                      className={`h-8 rounded-lg bg-gradient-to-r ${opt.value} border-2 transition-all ${
-                        editSettings.criticalColor === opt.value ? 'border-slate-800 scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'
-                      }`}
-                      onClick={() => setEditSettings({ ...editSettings, criticalColor: opt.value })}
-                      title={opt.name}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* 정상 (Safe) */}
-              <div className="space-y-4">
-                <label className="text-sm font-semibold text-slate-700 text-left block">✅ 정상 상태 색상</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {colorOptions.map((opt) => (
-                    <button
-                      key={opt.value}
-                      className={`h-8 rounded-lg bg-gradient-to-r ${opt.value} border-2 transition-all ${
-                        editSettings.safeColor === opt.value ? 'border-slate-800 scale-105 shadow-md' : 'border-transparent opacity-60 hover:opacity-100'
-                      }`}
-                      onClick={() => setEditSettings({ ...editSettings, safeColor: opt.value })}
-                      title={opt.name}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-4 bg-slate-50 flex items-center justify-end gap-3">
-              <Button variant="outline" onClick={() => setIsModalOpen(false)}>취소</Button>
-              <Button onClick={handleSaveSettings} className="gap-2 bg-slate-900 group">
-                <Check className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                설정 저장
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 업로드 방식 선택 모달 */}
-      {pendingFile && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-300">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in slide-in-from-bottom-4 duration-300">
-            <div className="px-6 py-4 border-b flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-2">
-                <Upload className="w-5 h-5 text-blue-600" />
-                <h2 className="text-lg font-bold text-slate-800">엑셀 업로드 방식 선택</h2>
-              </div>
-              <Button variant="ghost" size="icon" className="rounded-full h-8 w-8" onClick={() => setPendingFile(null)}>
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-            <div className="p-6 text-sm text-slate-600">
-              선택한 파일: <span className="font-semibold text-slate-800">{pendingFile.name}</span>
-              <br /><br />
-              이 파일의 데이터를 기존 목록에 <strong>이어서 누적</strong>하시겠습니까, 아니면 기존 데이터를 모두 <strong>초기화하고 새로 구성</strong>하시겠습니까?
-            </div>
-            <div className="px-6 py-4 bg-slate-50 flex items-center justify-end gap-3">
-              <Button 
-                variant="outline" 
-                className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700" 
-                onClick={() => { onUpload(pendingFile, 'overwrite'); setPendingFile(null); }}
-              >
-                초기화 후 새로 올리기
-              </Button>
-              <Button 
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-                onClick={() => { onUpload(pendingFile, 'append'); setPendingFile(null); }}
-              >
-                기존 목록에 누적하기
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      <MdbSyncModal
+        isOpen={isMdbModalOpen}
+        onClose={() => setIsMdbModalOpen(false)}
+        onSynced={onMdbSynced}
+        hasMembers={hasMembers}
+      />
+      <MdbSyncLogsModal
+        isOpen={isMdbLogsModalOpen}
+        onClose={() => setIsMdbLogsModalOpen(false)}
+      />
       <ConfirmModal
         isOpen={modalState?.isOpen || false}
         title={modalState?.title || ''}
@@ -309,3 +219,6 @@ export default function Header({ onUpload, onExportExcel, settings, onUpdateSett
     </div>
   );
 }
+
+
+export default Header;
