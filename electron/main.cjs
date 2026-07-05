@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, screen } = require('electron');
 const path = require('path');
 const Store = require('electron-store').default;
 
@@ -11,6 +11,12 @@ const createMemberRepository = require('./services/memberRepository.cjs');
 let store;
 let settingsStore;
 let memberRepository;
+
+const defaultWindowState = {
+  width: 1400,
+  height: 900,
+  isMaximized: true,
+};
 
 const initStore = () => {
   store = new Store({
@@ -47,10 +53,73 @@ const initStore = () => {
 console.log('dirname:', __dirname);
 console.log('preload path:', path.join(__dirname, 'preload.cjs'));
 
+function getSavedWindowState() {
+  const savedState = settingsStore?.get('windowState');
+  if (!savedState || typeof savedState !== 'object') {
+    return defaultWindowState;
+  }
+
+  const nextState = {
+    ...defaultWindowState,
+    ...savedState,
+  };
+
+  const width = Number(nextState.width);
+  const height = Number(nextState.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height)) {
+    return defaultWindowState;
+  }
+
+  nextState.width = Math.max(800, Math.round(width));
+  nextState.height = Math.max(800, Math.round(height));
+
+  const hasPosition = Number.isFinite(Number(nextState.x)) && Number.isFinite(Number(nextState.y));
+  if (hasPosition) {
+    nextState.x = Math.round(Number(nextState.x));
+    nextState.y = Math.round(Number(nextState.y));
+
+    const savedBounds = {
+      x: nextState.x,
+      y: nextState.y,
+      width: nextState.width,
+      height: nextState.height,
+    };
+    const hasMatchingDisplay = screen.getAllDisplays().some((display) => {
+      const { x, y, width: displayWidth, height: displayHeight } = display.workArea;
+      return (
+        savedBounds.x < x + displayWidth &&
+        savedBounds.x + savedBounds.width > x &&
+        savedBounds.y < y + displayHeight &&
+        savedBounds.y + savedBounds.height > y
+      );
+    });
+
+    if (!hasMatchingDisplay) {
+      delete nextState.x;
+      delete nextState.y;
+    }
+  }
+
+  return nextState;
+}
+
+function saveWindowState(win) {
+  if (!settingsStore || win.isDestroyed()) return;
+
+  const bounds = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
+  settingsStore.set('windowState', {
+    ...bounds,
+    isMaximized: win.isMaximized(),
+  });
+}
+
 function createWindow() {
+  const windowState = getSavedWindowState();
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    x: windowState.x,
+    y: windowState.y,
+    width: windowState.width,
+    height: windowState.height,
     icon: path.join(__dirname, '../public/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -62,7 +131,11 @@ function createWindow() {
     minHeight: 800,
   });
 
-  win.maximize(); // 실행 시 창 최대화
+  if (windowState.isMaximized) {
+    win.maximize();
+  }
+
+  win.on('close', () => saveWindowState(win));
 
   if (app.isPackaged) {
     const indexPath = path.join(process.resourcesPath, 'app', 'dist', 'index.html');
