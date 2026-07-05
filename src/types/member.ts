@@ -58,4 +58,5 @@ export interface Settings {
   solapiApiKey?: string;
   solapiApiSecret?: string;
   solapiSenderNumber?: string;
+  memberListFontSize?: number;
 }

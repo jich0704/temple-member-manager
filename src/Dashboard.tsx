@@ -190,7 +190,7 @@ const Dashboard = () => {
                   }`}
                 >
                   <h3 
-                    className="font-bold text-[15px] mb-2 truncate border-b border-slate-200/20 pb-1.5 cursor-pointer hover:opacity-80"
+                    className="font-bold text-[15px] mb-2 whitespace-normal break-words border-b border-slate-200/20 pb-1.5 cursor-pointer hover:opacity-80"
                     onClick={() => { setActiveLocation(loc); setActiveFilter('전체'); setSearchQuery(''); setPage(1); }}
                   >
                     {loc}

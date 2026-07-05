@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, type CSSProperties } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -102,6 +102,44 @@ const MemberTable = ({
   };
 
   const paginatedMembers = members || [];
+  const visibleHeaders = useMemo(
+    () => dynamicHeaders.filter((header) => activeColumns.includes(header)),
+    [dynamicHeaders, activeColumns]
+  );
+  const memberListFontSize = settings.memberListFontSize ?? 14;
+
+  const getTextUnits = (value: unknown) => {
+    const text = String(value || '-');
+    return Array.from(text).reduce((total, char) => {
+      if (char === ' ') return total + 0.35;
+      return total + (char.charCodeAt(0) > 127 ? 1 : 0.58);
+    }, 0);
+  };
+
+  const getColumnWidth = (header: string) => {
+    const maxUnits = Math.max(
+      getTextUnits(header),
+      ...paginatedMembers.map((member) => getTextUnits(member[header]))
+    );
+    const contentWidth = Math.ceil(maxUnits * memberListFontSize + 32);
+    const minWidth = ['휴대폰', '전화번호', 'phone'].includes(header) ? 138 : 72;
+    const maxWidth = ['위치명', '동참자'].includes(header) ? 280 : 220;
+    return Math.max(minWidth, Math.min(contentWidth, maxWidth));
+  };
+
+  const tableGridStyle = useMemo(() => {
+    const dataColumnWidths = visibleHeaders.map(getColumnWidth);
+    return {
+      gridTemplateColumns: `48px ${dataColumnWidths.map((width) => `${width}px`).join(' ')} 128px 64px 64px`,
+      minWidth: Math.max(
+        48 + dataColumnWidths.reduce((total, width) => total + width, 0) + 128 + 64 + 64 + 96,
+        720
+      ),
+    };
+  }, [visibleHeaders, paginatedMembers, memberListFontSize]);
+  const memberListStyle = {
+    '--member-list-font-size': `${memberListFontSize}px`,
+  } as CSSProperties;
 
   const isAllSelected = paginatedMembers.length > 0 && paginatedMembers.every((m) => selectedIds.has(String(m.index)));
 
@@ -142,7 +180,7 @@ const MemberTable = ({
   };
 
   return (
-    <div className="flex h-full flex-col font-sans w-full min-w-0">
+    <div className="flex h-full flex-col font-sans w-full min-w-0" style={memberListStyle}>
       {/* --- 테이블 상단 툴바 --- */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
         <div className="flex items-center gap-4">
@@ -239,27 +277,25 @@ const MemberTable = ({
             </div>
           </div>
         )}
-        <div className="min-w-[1600px] w-full">
+        <div className="w-full" style={{ minWidth: tableGridStyle.minWidth }}>
           {/* --- 동적 테이블 헤더 (Sticky) --- */}
-          <div className="sticky top-0 z-10 flex h-12 items-center border-b bg-gray-50 px-6 font-semibold shadow-sm">
-            <div className="w-12 shrink-0"></div>
-            {dynamicHeaders
-              .filter((header) => activeColumns.includes(header))
-              .map((header) => {
-                const isNameOrPhone = ['이름', '전화번호', '대주', '동참자', '휴대폰', 'phone', 'name'].includes(header);
-                return (
-                  <div
-                    key={header}
-                    onClick={() => handleSort(header)}
-                    className={`flex-1 flex cursor-pointer items-center gap-2 px-2 text-gray-700 hover:text-blue-600 select-none group relative ${isNameOrPhone ? 'justify-start' : 'justify-center'}`}
-                  >
-                    <span className="truncate">{header}</span>
-                  </div>
-                );
-              })}
-            <div className="w-32 shrink-0 flex justify-end pr-6 text-gray-700 ml-auto">상태</div>
-            <div className="w-16 shrink-0 flex justify-end pr-4 text-gray-700">SMS</div>
-            <div className="w-16 shrink-0 flex justify-end pr-6 text-gray-700">삭제</div>
+          <div
+            className="sticky top-0 z-10 grid min-h-12 items-stretch border-b bg-gray-50 px-6 font-semibold shadow-sm"
+            style={tableGridStyle}
+          >
+            <div className="flex items-center"></div>
+            {visibleHeaders.map((header) => (
+              <div
+                key={header}
+                onClick={() => handleSort(header)}
+                className="flex cursor-pointer items-center justify-center gap-2 px-2 py-3 text-center text-[length:var(--member-list-font-size)] text-gray-700 hover:text-blue-600 select-none group relative min-w-0 leading-snug"
+              >
+                <span className="whitespace-normal break-keep">{header}</span>
+              </div>
+            ))}
+            <div className="flex items-center justify-center text-center text-gray-700">상태</div>
+            <div className="flex items-center justify-center text-center text-gray-700">SMS</div>
+            <div className="flex items-center justify-center text-center text-gray-700">삭제</div>
           </div>
 
           {(!members || members.length === 0) ? (
@@ -271,25 +307,29 @@ const MemberTable = ({
             {paginatedMembers.map((m) => {
               const isSelected = selectedIds.has(String(m.index));
               return (
-                <div key={String(m.index)} className={`group flex h-14 cursor-pointer items-center border-b border-gray-100 px-6 transition-all duration-200 hover:bg-blue-50 ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
-                  <div className="flex w-12 shrink-0 items-center">
+                <div
+                  key={String(m.index)}
+                  className={`group grid min-h-14 cursor-pointer items-stretch border-b border-gray-100 px-6 transition-all duration-200 hover:bg-blue-50 ${isSelected ? 'bg-blue-50' : 'bg-white'}`}
+                  style={tableGridStyle}
+                >
+                  <div className="flex items-center">
                     <Checkbox checked={isSelected} onCheckedChange={() => handleSelectOne(String(m.index))} />
                   </div>
 
                   {/* 동적 컬럼 데이터 렌더링 */}
-                  {dynamicHeaders
-                    .filter((header) => activeColumns.includes(header))
-                    .map((header) => {
-                      const isNameOrPhone = ['이름', '전화번호', '대주', '동참자', '휴대폰', 'phone', 'name'].includes(header);
-                      return (
-                        <div key={header} className={`flex-1 truncate px-2 text-sm text-gray-700 ${isNameOrPhone ? 'text-left' : 'text-center'}`}>
-                          {m[header] || '-'}
-                        </div>
-                      );
-                    })}
+                  {visibleHeaders.map((header) => (
+                    <div
+                      key={header}
+                      className="flex min-w-0 items-center justify-center px-2 py-3 text-center text-[length:var(--member-list-font-size)] leading-snug text-gray-700"
+                    >
+                      <span className="whitespace-normal break-words">
+                        {m[header] || '-'}
+                      </span>
+                    </div>
+                  ))}
 
                   {/* 상태 선택 및 디데이 뱃지 */}
-                  <div className="flex w-32 shrink-0 justify-end pr-6 ml-auto">
+                  <div className="flex items-center justify-center">
                     <StatusDisplay 
                         status={String(m.status)} 
                         lastPaymentMonth={m['최종납부월'] ? String(m['최종납부월']) : undefined} 
@@ -298,7 +338,7 @@ const MemberTable = ({
                   </div>
 
                   {/* 삭제 버튼 등 */}
-                  <div className="flex w-16 shrink-0 justify-end pr-4">
+                  <div className="flex items-center justify-center">
                      <Button 
                        size="icon" 
                        variant="ghost" 
@@ -311,7 +351,7 @@ const MemberTable = ({
                         💬
                      </Button>
                   </div>
-                  <div className="flex w-16 shrink-0 justify-end pr-6">
+                  <div className="flex items-center justify-center">
                     <Button
                       variant="ghost"
                       size="icon"
