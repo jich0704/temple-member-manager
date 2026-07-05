@@ -12,6 +12,8 @@ const DEFAULT_SETTINGS: Settings = {
   criticalColor: 'from-red-500 to-red-600',
   expiredColor: 'from-slate-500 to-slate-600',
   safeColor: 'from-green-500 to-emerald-500',
+  memberListFontSize: 14,
+  menuFontSize: 14,
 };
 
 const formatDate = (dateValue: string) => {
@@ -104,9 +106,9 @@ export const useMembers = (
       if (window.api.loadSettings) {
         const data = await window.api.loadSettings();
         if (data && isMounted) {
-          currentSettings = data;
-          settingsRef.current = data;
-          setSettings(data);
+          currentSettings = { ...DEFAULT_SETTINGS, ...data };
+          settingsRef.current = currentSettings;
+          setSettings(currentSettings);
         }
       }
       if (!isMounted) return;

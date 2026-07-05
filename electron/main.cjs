@@ -35,6 +35,8 @@ const initStore = () => {
       warningColor: 'from-blue-500 to-blue-600',
       criticalColor: 'from-red-500 to-red-600',
       safeColor: 'from-green-500 to-emerald-500',
+      memberListFontSize: 14,
+      menuFontSize: 14,
     }
   });
 

@@ -1,10 +1,9 @@
 import { CalendarClock, Check, Clock, Database, ShieldCheck, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import type { Settings } from '../types/member';
 import { AutoSmsSettingsModal } from './ui/autoSmsSettingsModal';
 import { Button } from './ui/button';
 import { ConfirmModal } from './ui/confirmModal';
-import { Input } from './ui/input';
 import { MdbSyncModal } from './ui/mdbSyncModal';
 import { MdbSyncLogsModal } from './ui/mdbSyncLogsModal';
 
@@ -30,8 +29,16 @@ const colorOptions = [
   { name: '그레이', value: 'from-slate-500 to-slate-600' },
 ];
 
+const fontSizeOptions = [
+  { label: '작게', value: 14 },
+  { label: '보통', value: 16 },
+  { label: '크게', value: 18 },
+  { label: '아주크게', value: 20 },
+];
+
 const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance, onMdbSynced, locations = [] }: Props) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isColorModalOpen, setIsColorModalOpen] = useState(false);
+  const [isFontModalOpen, setIsFontModalOpen] = useState(false);
   const [isAutoSmsModalOpen, setIsAutoSmsModalOpen] = useState(false);
   const [isMdbModalOpen, setIsMdbModalOpen] = useState(false);
   const [isMdbLogsModalOpen, setIsMdbLogsModalOpen] = useState(false);
@@ -46,11 +53,63 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
 
   const handleSaveSettings = () => {
     onUpdateSettings(editSettings);
-    setIsModalOpen(false);
+    setIsColorModalOpen(false);
+    setIsFontModalOpen(false);
+  };
+
+  const openColorModal = () => {
+    setEditSettings(settings);
+    setIsColorModalOpen(true);
+  };
+
+  const openFontModal = () => {
+    setEditSettings(settings);
+    setIsFontModalOpen(true);
+  };
+
+  const handleCancelSettings = () => {
+    setEditSettings(settings);
+    setIsColorModalOpen(false);
+    setIsFontModalOpen(false);
+  };
+
+  const menuFontStyle = {
+    '--menu-font-size': `${settings.menuFontSize ?? 14}px`,
+  } as CSSProperties;
+
+  const editMenuFontStyle = {
+    '--menu-font-size': `${editSettings.menuFontSize ?? 14}px`,
+  } as CSSProperties;
+
+  const renderFontSizeOptions = (key: 'memberListFontSize' | 'menuFontSize') => {
+    const selectedValue = editSettings[key] ?? 14;
+    return (
+      <div className="grid grid-cols-4 gap-2">
+        {fontSizeOptions.map((option) => {
+          const isSelected = selectedValue === option.value;
+          return (
+            <button
+              key={`${key}-${option.value}`}
+              onClick={() => setEditSettings({ ...editSettings, [key]: option.value })}
+              className={`flex flex-col items-center justify-center gap-1 rounded-xl border-2 p-3 transition-all ${
+                isSelected
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm scale-[1.02]'
+                  : 'border-slate-100 text-slate-600 hover:border-blue-200 hover:bg-slate-50'
+              }`}
+            >
+              <span className="font-bold" style={{ fontSize: option.value }}>
+                가
+              </span>
+              <span className="text-xs font-semibold">{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
-    <div className="relative">
+    <div className="menu-font-scope relative" style={menuFontStyle}>
       {/* 우측 상단 솔라피 잔액 고정 표시 */}
       {solapiBalance !== undefined && solapiBalance !== null && (
         <div className="absolute -top-4 right-0 flex items-center justify-center bg-blue-50 border border-blue-200 rounded-full px-4 py-1.5 shadow-sm">
@@ -79,20 +138,6 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
             >
               <Clock className="w-3.5 h-3.5 text-slate-500 group-hover:scale-110 transition-transform" />
               <span>동기화 이력</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 시스템 설정 박스 */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-bold text-slate-500 px-1">시스템 설정</span>
-          <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm p-1">
-            <button
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
-              onClick={() => setIsModalOpen(true)}
-            >
-              <CalendarClock className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
-              <span>상태 표시 색상 설정</span>
             </button>
           </div>
         </div>
@@ -129,9 +174,31 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
           </div>
         </div>
 
+        {/* 시스템 설정 박스 */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold text-slate-500 px-1">시스템 설정</span>
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm p-1">
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={openColorModal}
+            >
+              <CalendarClock className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
+              <span>색상 설정</span>
+            </button>
+            <div className="w-px h-4 bg-slate-200 mx-1"></div>
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={openFontModal}
+            >
+              <CalendarClock className="w-3.5 h-3.5 text-blue-500 group-hover:scale-110 transition-transform" />
+              <span>폰트 설정</span>
+            </button>
+          </div>
+        </div>
+
       </div>
 
-      {isModalOpen && (
+      {isColorModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
@@ -139,7 +206,7 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
                 <CalendarClock className="w-5 h-5 text-blue-500" />
                 상태 표시 색상 설정
               </h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-200">
+              <button onClick={handleCancelSettings} className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-200">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -181,7 +248,50 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
             </div>
             
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setIsModalOpen(false)}>
+              <Button variant="ghost" onClick={handleCancelSettings}>
+                취소
+              </Button>
+              <Button className="bg-slate-900 hover:bg-slate-800 text-white" onClick={handleSaveSettings}>
+                저장하기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isFontModalOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <CalendarClock className="w-5 h-5 text-blue-500" />
+                폰트 설정
+              </h2>
+              <button onClick={handleCancelSettings} className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-full hover:bg-slate-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar" style={editMenuFontStyle}>
+              <div className="space-y-3">
+                <div>
+                  <div className="font-semibold text-slate-800">리스트 폰트 크기</div>
+                  <div className="text-xs text-slate-500">회원 리스트의 글자 크기를 조정합니다.</div>
+                </div>
+                {renderFontSizeOptions('memberListFontSize')}
+              </div>
+
+              <div className="space-y-3 border-t border-slate-100 pt-6">
+                <div>
+                  <div className="font-semibold text-slate-800">메뉴 폰트 크기</div>
+                  <div className="text-xs text-slate-500">상단 메뉴, 설정 모달, 카드 섹션의 글자 크기를 조정합니다.</div>
+                </div>
+                {renderFontSizeOptions('menuFontSize')}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <Button variant="ghost" onClick={handleCancelSettings}>
                 취소
               </Button>
               <Button className="bg-slate-900 hover:bg-slate-800 text-white" onClick={handleSaveSettings}>

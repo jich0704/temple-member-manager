@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, type CSSProperties } from 'react';
 import Header from './components/header';
 import MemberTable from './components/memberTable';
 import { ConfirmModal } from './components/ui/confirmModal';
@@ -133,6 +133,10 @@ const Dashboard = () => {
     }
   }, [locations]); // activeLocation 제거 → 카드 선택 시 재발동 방지
 
+  const menuFontStyle = {
+    '--menu-font-size': `${settings.menuFontSize ?? 14}px`,
+  } as CSSProperties;
+
   return (
     <div className="min-h-screen bg-slate-50/50 w-full overflow-x-hidden">
       <div className="flex flex-col h-screen w-full min-w-0">
@@ -152,12 +156,15 @@ const Dashboard = () => {
         </div>
 
         {/* 종합 관제탑 Grid UI (컴팩트 버전) */}
-        <div className="px-10 flex justify-end mb-1">
+        <div className="menu-font-scope px-10 flex justify-end mb-1" style={menuFontStyle}>
           <Button variant="ghost" size="sm" className="h-6 text-xs text-slate-500 hover:text-slate-800" onClick={() => setIsCardsExpanded(!isCardsExpanded)}>
             {isCardsExpanded ? '카드 접기' : '카드 펼치기'}
           </Button>
         </div>
-        <div className={`px-10 mb-4 pb-2 overflow-y-auto custom-scrollbar transition-all duration-300 ${isCardsExpanded ? 'max-h-[40vh]' : 'max-h-[115px]'}`}>
+        <div
+          className={`menu-font-scope px-10 mb-4 pb-2 overflow-y-auto custom-scrollbar transition-all duration-300 ${isCardsExpanded ? 'max-h-[40vh]' : 'max-h-[115px]'}`}
+          style={menuFontStyle}
+        >
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {locations.filter(l => l !== '전체').map(loc => {
               const stat = locationStats[loc] || { total: 0, active: 0, twoWeeks: 0, oneMonth: 0, expired: 0 };
@@ -254,30 +261,34 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <ConfirmModal
-        isOpen={modalState?.isOpen || false}
-        title={modalState?.title || ''}
-        message={modalState?.message || ''}
-        isAlert={modalState?.isAlert}
-        onConfirm={modalState?.onConfirm || (() => {})}
-        onCancel={() => setModalState(null)}
-      />
+      <div className="menu-font-scope" style={menuFontStyle}>
+        <ConfirmModal
+          isOpen={modalState?.isOpen || false}
+          title={modalState?.title || ''}
+          message={modalState?.message || ''}
+          isAlert={modalState?.isAlert}
+          onConfirm={modalState?.onConfirm || (() => {})}
+          onCancel={() => setModalState(null)}
+        />
+      </div>
 
-      <SolapiSetupModal 
-        isOpen={isSetupModalOpen}
-        onClose={() => setIsSetupModalOpen(false)}
-        settings={settings}
-        onSaveSettings={handleUpdateSettings}
-        onSuccess={() => {
-          setModalState({
-            isOpen: true,
-            title: '연동 성공',
-            message: '솔라피 계정이 성공적으로 연동되었습니다.\n이제 문자 발송이 가능합니다.',
-            isAlert: true,
-            onConfirm: () => setModalState(null),
-          });
-        }}
-      />
+      <div className="menu-font-scope" style={menuFontStyle}>
+        <SolapiSetupModal
+          isOpen={isSetupModalOpen}
+          onClose={() => setIsSetupModalOpen(false)}
+          settings={settings}
+          onSaveSettings={handleUpdateSettings}
+          onSuccess={() => {
+            setModalState({
+              isOpen: true,
+              title: '연동 성공',
+              message: '솔라피 계정이 성공적으로 연동되었습니다.\n이제 문자 발송이 가능합니다.',
+              isAlert: true,
+              onConfirm: () => setModalState(null),
+            });
+          }}
+        />
+      </div>
 
       <SmsSendModal 
         isOpen={isSendModalOpen}
@@ -296,10 +307,12 @@ const Dashboard = () => {
         }}
       />
 
-      <SmsHistoryModal
-        isOpen={isHistoryModalOpen}
-        onClose={() => setIsHistoryModalOpen(false)}
-      />
+      <div className="menu-font-scope" style={menuFontStyle}>
+        <SmsHistoryModal
+          isOpen={isHistoryModalOpen}
+          onClose={() => setIsHistoryModalOpen(false)}
+        />
+      </div>
     </div>
   );
 };
