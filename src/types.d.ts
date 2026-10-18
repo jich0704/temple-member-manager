@@ -70,6 +70,9 @@ declare global {
       syncMdbNow: (config: MdbSyncConfig) => Promise<MdbSyncResult>;
       getMdbSyncStatus: () => Promise<MdbSyncStatus>;
       onMdbSyncStatus: (callback: (status: MdbSyncStatus) => void) => () => void;
+      getAppVersion: () => Promise<string>;
+      checkForUpdates: () => Promise<{ ok: boolean; version?: string; message?: string }>;
     };
   }
 }
+

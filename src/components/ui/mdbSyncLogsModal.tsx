@@ -264,31 +264,43 @@ export const MdbSyncLogsModal = ({ isOpen, onClose }: { isOpen: boolean; onClose
         </div>
 
         {/* 페이징 */}
-        {totalPages > 1 && (
-          <div className="flex justify-center items-center gap-2 px-6 py-3 border-t bg-white shrink-0">
-            <Button variant="outline" size="sm" onClick={() => fetchLogs(page - 1)} disabled={page <= 1 || loading}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-              const p = page <= 4 ? i + 1 : page - 3 + i;
-              if (p < 1 || p > totalPages) return null;
-              return (
-                <button
-                  key={p}
-                  onClick={() => fetchLogs(p)}
-                  className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
-                    p === page
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  {p}
-                </button>
-              );
-            })}
-            <Button variant="outline" size="sm" onClick={() => fetchLogs(page + 1)} disabled={page >= totalPages || loading}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
+        {totalCount > 0 && (
+          <div className="flex justify-between items-center px-6 py-3 border-t bg-white shrink-0">
+            <div className="text-xs text-slate-500">
+              총 <span className="font-semibold text-slate-700">{totalCount}</span>건 중 {(page - 1) * 20 + 1}-{Math.min(page * 20, totalCount)} 표시
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button variant="outline" size="sm" onClick={() => fetchLogs(page - 1)} disabled={page <= 1 || loading}>
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                if (p === 1 || p === totalPages || (p >= page - 1 && p <= page + 1)) {
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => fetchLogs(p)}
+                      className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
+                        p === page
+                          ? 'bg-slate-900 text-white'
+                          : 'text-slate-600 hover:bg-slate-100 border border-slate-200'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  );
+                } else if (p === page - 2 || p === page + 2) {
+                  return (
+                    <span key={p} className="px-1 text-slate-400">
+                      ...
+                    </span>
+                  );
+                }
+                return null;
+              })}
+              <Button variant="outline" size="sm" onClick={() => fetchLogs(page + 1)} disabled={page >= totalPages || loading}>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         )}
       </div>

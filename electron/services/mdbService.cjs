@@ -789,14 +789,23 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
 
   ipcMain.handle('clear-mdb-data', async () => {
     try {
-      memberRepository.deleteMembers(
-        memberRepository.loadAll().filter(m => m.source === 'mdb')
-      );
+      if (syncTimer) {
+        clearInterval(syncTimer);
+        syncTimer = null;
+      }
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      memberRepository.clearMdbMembers();
       settingsStore.delete('mdbSync.lastSyncAt');
       settingsStore.delete('mdbSync.lastRowCount');
       settingsStore.delete('mdbSync.lastFullSyncAt');
       settingsStore.delete('mdbSync.lastUpdateScanAt');
       settingsStore.delete('mdbSync.maxReceiveMemberId');
+      settingsStore.set('mdbSync.filePath', '');
+      settingsStore.set('mdbSync.password', '');
+      settingsStore.set('mdbSync.enabled', false);
       
       emitStatus({ state: 'idle', message: '데이터 초기화 완료', rowCount: 0, syncedAt: '' });
       return { ok: true };

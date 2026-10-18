@@ -1,6 +1,7 @@
-import { CalendarClock, Check, Clock, Database, ShieldCheck, X } from 'lucide-react';
+import { CalendarClock, Check, Clock, Database, LogOut, ShieldCheck, User, X } from 'lucide-react';
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { Settings } from '../types/member';
+import type { TempleAccount } from '../service/firebaseSyncService';
 import { AutoSmsSettingsModal } from './ui/autoSmsSettingsModal';
 import { Button } from './ui/button';
 import { ConfirmModal } from './ui/confirmModal';
@@ -16,6 +17,8 @@ interface Props {
   solapiBalance?: number | null;
   onMdbSynced: () => void;
   locations?: string[];
+  account?: TempleAccount | null;
+  onLogout?: () => void;
 }
 
 const colorOptions = [
@@ -36,15 +39,22 @@ const fontSizeOptions = [
   { label: '아주크게', value: 20 },
 ];
 
-const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance, onMdbSynced, locations = [] }: Props) => {
+const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance, onMdbSynced, locations = [], account, onLogout }: Props) => {
   const [isColorModalOpen, setIsColorModalOpen] = useState(false);
   const [isFontModalOpen, setIsFontModalOpen] = useState(false);
   const [isAutoSmsModalOpen, setIsAutoSmsModalOpen] = useState(false);
   const [isMdbModalOpen, setIsMdbModalOpen] = useState(false);
   const [isMdbLogsModalOpen, setIsMdbLogsModalOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState('1.0.0');
 
   const [editSettings, setEditSettings] = useState<Settings>(settings);
   const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; isAlert?: boolean; onConfirm: () => void } | null>(null);
+
+  useEffect(() => {
+    window.api?.getAppVersion?.().then((v) => {
+      if (v) setAppVersion(v);
+    }).catch(() => {});
+  }, []);
 
   // 현재 설정값을 편집용 상태에 동기화
   useEffect(() => {
@@ -110,12 +120,38 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
 
   return (
     <div className="menu-font-scope relative" style={menuFontStyle}>
-      {/* 우측 상단 솔라피 잔액 고정 표시 */}
-      {solapiBalance !== undefined && solapiBalance !== null && (
-        <div className="absolute -top-4 right-0 flex items-center justify-center bg-blue-50 border border-blue-200 rounded-full px-4 py-1.5 shadow-sm">
-          <span className="text-sm font-extrabold text-blue-700 tracking-tight">문자 잔액: {solapiBalance.toLocaleString()}원</span>
-        </div>
-      )}
+      {/* 우측 상단 솔라피 잔액, 로그인 계정 및 버전 표시 */}
+      <div className="absolute -top-4 right-0 flex items-center gap-2">
+        <span
+          className="text-[11px] font-semibold text-slate-400 bg-slate-100/80 border border-slate-200/80 rounded-full px-2.5 py-1 select-none"
+          title={`현재 버전: v${appVersion}`}
+        >
+          v{appVersion}
+        </span>
+        {solapiBalance !== undefined && solapiBalance !== null && (
+          <div className="flex items-center justify-center bg-blue-50 border border-blue-200 rounded-full px-4 py-1.5 shadow-sm">
+            <span className="text-sm font-extrabold text-blue-700 tracking-tight">문자 잔액: {solapiBalance.toLocaleString()}원</span>
+          </div>
+        )}
+        {account && (
+          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-full pl-3 pr-2 py-1 shadow-sm">
+            <User className="w-3.5 h-3.5 text-slate-500" />
+            <span className="text-xs font-semibold text-slate-700">{account.templeName}</span>
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                title="로그아웃"
+              >
+                <LogOut className="w-3 h-3" />
+                <span>로그아웃</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
 
       {/* 헤더 메뉴바 영역 */}
       <div className="flex flex-wrap items-center justify-start w-full gap-4 pb-2 mb-2 border-b border-slate-100">

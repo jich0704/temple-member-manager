@@ -163,6 +163,175 @@ src/
 
 ---
 
+# [ ~ 10.18]
+
+## 1. 위치 카드 디자인 및 접기/펼치기 높이 동적 개선
+- 선택된 위치 카드의 배경을 어두운 차콜 톤에서 밝은 블루 포인트 톤(`bg-blue-50/90`, `border-blue-500`)으로 개선
+- `ResizeObserver`로 첫 줄 카드의 실제 높이를 측정하여, 메뉴 폰트 크기 변경 시에도 접힌 상태에서 1줄 카드가 잘리지 않고 카드 높이에 맞게 표시되도록 수정
+
+## 2. 문자 발송(수동/자동) 안정성 및 날짜 파싱 보완
+- MDB 연동 회원의 전화번호(`phone`, `휴대폰`, `전화번호`, `연락처`) 및 이름(`동참자`, `대주`, `이름`) 필드를 모두 인식하도록 수정 및 발송 실패 이력 기록 추가
+- 자동 문자 발송(`autoSmsService.cjs`) 시 전체 회원 로딩 대신 만료 임박 대상자만 SQLite에서 조회하도록 개선하고, `YYYY-MM` / `YYYY.MM` 포맷 및 월말 기준 남은 일수 계산 반영
+
+## 3. 이력 모달(문자 발송 이력 / MDB 동기화 이력) 페이징 및 UI 통일
+- 문자 발송 이력 모달(`smsHistoryModal.tsx`): **전체 / 성공 / 실패** 탭 필터, 페이지당 10건 페이지네이션, 클릭 시 상세(전문/MMS 이미지/오류 원인/수신자 명단) 펼침 UI 적용
+- MDB 동기화 이력 모달(`mdbSyncLogsModal.tsx`): 첫 페이지/마지막 페이지 이동이 가능한 페이지네이션 UI로 통일
+
+## 4. 리스트 정렬, 검색 페이징 및 MDB 데이터 초기화 버그 수정
+- 기본 정렬 기준을 `신도번호`로 통일하고 숫자 크기순 정렬(`CAST AS INTEGER`) 및 헤더 정렬 방향 아이콘(`↑`/`↓`) 표시 적용
+- 검색어 입력 후 페이지 이동 시 검색어가 초기화되던 버그 수정
+- MDB 데이터 초기화(`clear-mdb-data`) 시 SQLite 즉시 삭제(`clearMdbMembers`) 및 프론트엔드 위치 카드 통계·회원 목록 즉시 갱신 처리
+
+## 5. 사찰 계정 로그인 화면 및 Firebase 클라우드 동기화 아키텍처 구축
+- **로그인 화면(`LoginPage.tsx`)**: 사찰 아이디/비밀번호 로그인, 자동 로그인(세션 유지), 헤더 계정 표시 및 로그아웃 기능 추가 (Firebase 키 미설정 시 로컬 테스트 모드로 자동 전환)
+- **하이브리드 데이터 구조(`firebaseSyncService.ts`)**:
+  - 48만 건의 대용량 MDB 원본 회원 데이터는 로컬 SQLite(`members.db`)에서 고속 처리
+  - Firestore(`temples/{uid}`)에는 사찰 계정 정보(`isActive: true`), 현재 설치된 앱 버전(`appVersion`), 실시간 요약 통계(`locationStats`), 솔라피 잔액(`solapiBalance`), MDB 동기화 상태(`mdbStatus`), 환경설정(`config/settings`), 문자 발송 이력(`sms_history`), 통합 오류 이력(`error_logs`)만 경량 동기화
+
+## 6. 원격 자동 업데이트(`electron-updater`) 및 앱 버전 표기 적용
+- 로그인 화면 우측 상단 및 메인 대시보드 우측 상단 헤더에 현재 앱 버전(`v1.0.0`) 표기 추가
+- `electron-updater` 및 GitHub Releases(`jich0704/temple-member-manager`) 연동으로 사찰 PC에서 앱 실행 시 새 버전을 자동 감지·다운로드 후 재시작 안내 팝업 제공
+
+---
+
+# 원격 자동 업데이트 (Auto-Update) 배포 및 테스트 가이드
+
+사찰 PC에 매번 `.exe` 파일을 직접 전달하지 않아도, 개발자가 **GitHub Releases**에 새 버전만 올리면 사찰 PC가 앱을 켤 때 자동으로 새 버전을 감지하여 업데이트합니다.
+
+## 1. 동작 원리
+1. `package.json`의 `"build.publish"` 설정이 본인의 GitHub 저장소(`jich0704/temple-member-manager`)를 바라보도록 세팅되어 있습니다.
+2. 빌드(`npm run dist`)가 실행되면 `release/` 폴더 안에 아래 3가지 핵심 파일이 생성됩니다:
+   - `신도관리시스템 Setup X.X.X.exe` (설치 파일)
+   - `신도관리시스템 Setup X.X.X.exe.blockmap` (변경된 부분만 빠르게 다운로드하기 위한 블록맵 파일)
+   - `latest.yml` (**가장 중요**: 최신 버전 번호와 파일 해시 정보가 적힌 메타데이터 파일)
+3. 사찰 PC에서 앱을 실행하면 3초 뒤 자동으로 GitHub Releases의 `latest.yml`을 확인합니다.
+4. 내 PC의 버전(예: `1.0.1`)보다 GitHub의 버전(예: `1.0.2`)이 높으면 백그라운드에서 조용히 다운로드한 뒤, **"새로운 버전(v1.0.2)이 다운로드되었습니다. 지금 재시작하여 업데이트를 적용하시겠습니까?"** 알림창을 띄웁니다. (기존 SQLite 회원 DB와 설정값은 그대로 유지됩니다.)
+
+---
+
+## 2. 새 버전 배포 방법 (Git 푸시와 동시에 버전 업 + 자동 배포)
+
+`.github/workflows/release.yml` (GitHub Actions)과 `package.json`의 `release` 스크립트가 세팅되어 있어, **명령어 한 줄**로 버전 증가부터 Git 푸시, `.exe` 빌드 및 GitHub Releases 등록까지 자동으로 처리할 수 있습니다.
+
+### 방법 A (추천): 명령어 한 줄로 버전 업 + Git 푸시 + 자동 빌드 배포 (`npm run release`)
+1. 수정한 코드들을 평소처럼 커밋합니다:
+   ```bash
+   git add .
+   git commit -m "기능 수정 내역"
+   ```
+2. 아래 명령어 중 하나를 실행합니다:
+   - **패치 버전 업 (`1.0.0` → `1.0.1`)**:
+     ```bash
+     npm run release
+     ```
+   - **마이너 버전 업 (`1.0.1` → `1.1.0`)**:
+     ```bash
+     npm run release:minor
+     ```
+   - **메이저 버전 업 (`1.1.0` → `2.0.0`)**:
+     ```bash
+     npm run release:major
+     ```
+3. **자동으로 일어나는 일**:
+   - `package.json`의 `"version"`이 자동으로 올라가고(`1.0.1` → `1.0.2`), 버전 커밋과 Git 태그(`v1.0.2`)가 생성된 뒤 GitHub로 코드와 태그가 함께 Push됩니다.
+   - GitHub의 **Actions** 탭에서 자동으로 Windows 빌드가 시작되며(약 2~3분 소요), 완료되면 **GitHub Releases**에 `.exe`, `.blockmap`, `latest.yml`이 올라갑니다.
+   - *(참고: GitHub Actions가 만든 릴리즈가 Draft(임시저장) 상태로 올라간 경우, GitHub Releases 페이지에서 **[Publish release]** 버튼만 한 번 눌러주면 즉시 모든 사찰 PC에 배포됩니다.)*
+
+### 방법 B: 내 PC에서 직접 빌드해서 GitHub 웹페이지에 올리기
+1. `package.json`의 `"version"` 값을 `"1.0.2"`로 수정한 뒤 터미널에서 `npm run dist`를 실행합니다.
+2. GitHub 저장소(`https://github.com/jich0704/temple-member-manager/releases`)에서 **[Draft a new release]** 클릭 → 태그 `v1.0.2` 입력
+3. 프로젝트 `release/` 폴더 안에 생성된 3개 파일(`신도관리시스템 Setup 1.0.2.exe`, `신도관리시스템 Setup 1.0.2.exe.blockmap`, `latest.yml`)을 드래그해서 올리고 **[Publish release]**를 클릭합니다.
+
+> **주의**: GitHub 저장소가 `Private`(비공개)이면 사찰 PC에서 토큰 없이 다운로드할 수 없으므로, 저장소는 `Public`으로 두어야 합니다.
+
+---
+
+## 3. 자동 업데이트 직접 테스트해보는 방법 (`1.0.1` → `1.0.2`)
+
+내 PC 한 대에서도 실제로 자동 업데이트가 작동하는지 바로 테스트해볼 수 있습니다.
+
+1. **`1.0.1` 버전 설치하기**
+   - `package.json`의 `"version"`을 `"1.0.1"`로 맞춘 뒤 `npm run dist`를 실행합니다.
+   - 생성된 `release/신도관리시스템 Setup 1.0.1.exe`를 실행하여 내 PC에 설치합니다.
+   - 설치된 앱이 켜지면 로그인 화면과 상단 헤더에 **`v1.0.1`**로 표시되는지 확인하고 앱을 종료합니다.
+2. **`1.0.2` 버전 자동 배포하기**
+   - 터미널에서 아래 명령어를 실행합니다:
+     ```bash
+     npm run release
+     ```
+   - 자동으로 버전이 `1.0.2`로 바뀌고 GitHub로 푸시됩니다.
+   - GitHub 저장소의 **Actions** 탭에서 빌드가 완료된 후, **Releases** 탭에 `v1.0.2` 릴리즈가 게시(Published)되었는지 확인합니다. (Draft 상태라면 **[Publish release]** 클릭)
+3. **자동 업데이트 확인**
+   - 바탕화면(또는 시작 메뉴)에 설치되어 있던 **`1.0.1` 버전 앱(`신도관리시스템`)**을 실행합니다.
+   - 실행 후 약 5~15초 뒤(백그라운드 다운로드 완료 직후) **"업데이트 준비 완료 - 새로운 버전(v1.0.2)이 다운로드되었습니다. 지금 재시작하여 업데이트를 적용하시겠습니까?"** 창이 자동으로 뜹니다.
+   - **[지금 재시작]**을 누르면 앱이 자동으로 재설치 후 다시 켜지며, 상단 버전 표기가 **`v1.0.2`**로 바뀐 것을 확인할 수 있습니다.
+
+---
+
+
+# Firebase 클라우드 연동 가이드 (추후 프로젝트 생성 시)
+
+
+현재 `.env`에 Firebase 키가 없으면 자동으로 **로컬 테스트 모드**로 동작하며, 아래 절차만 진행하면 즉시 클라우드 연동 모드로 전환됩니다.
+
+## 1단계: Firebase 프로젝트 생성 및 서비스 활성화
+1. [Firebase 콘솔](https://console.firebase.google.com/) 접속 → **[프로젝트 추가]** 클릭 후 프로젝트 생성
+2. **Authentication 활성화**:
+   - 좌측 메뉴 **빌드 > Authentication > 시작하기** 클릭
+   - **Sign-in method(로그인 방법)** 탭에서 **[이메일/비밀번호]** 사용 설정 후 저장
+   - **Users(사용자)** 탭에서 사찰 계정 추가:
+     - 아이디가 `jogyesa`인 경우 이메일란에 **`jogyesa@temple-manager.app`** 형식으로 등록하고 비밀번호 설정 (앱 로그인 창에서는 `jogyesa`만 입력해도 자동으로 `@temple-manager.app`을 붙여 로그인 처리됨)
+3. **Firestore Database 활성화**:
+   - 좌측 메뉴 **빌드 > Firestore Database > 데이터베이스 만들기** 클릭
+   - 위치 선택(예: `asia-northeast3 (서울)`) 후 생성
+   - **규칙(Rules)** 탭에서 로그인된 사찰이 본인 데이터(`temples/{uid}`)를 읽고 쓸 수 있도록 아래와 같이 설정:
+     ```javascript
+     rules_version = '2';
+     service cloud.firestore {
+       match /databases/{database}/documents {
+         match /temples/{userId}/{document=**} {
+           allow read, write: if request.auth != null && request.auth.uid == userId;
+         }
+       }
+     }
+     ```
+
+## 2단계: 앱에 Firebase 키 연결 및 `.exe` 배포 시 동작 방식
+1. Firebase 콘솔 좌측 상단 **프로젝트 설정(⚙️) > 일반 > 내 앱**에서 **웹(`</>`) 앱 추가** 클릭 후 `firebaseConfig` 값 확인
+2. 프로젝트 루트의 `.env.example` 파일을 복사해 `.env` 파일을 생성하고 아래 값을 채워 넣습니다:
+   ```env
+   VITE_FIREBASE_API_KEY=AIzaSy...
+   VITE_FIREBASE_AUTH_DOMAIN=프로젝트ID.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=프로젝트ID
+   VITE_FIREBASE_STORAGE_BUCKET=프로젝트ID.firebasestorage.app
+   VITE_FIREBASE_MESSAGING_SENDER_ID=1234567890
+   VITE_FIREBASE_APP_ID=1:1234567890:web:abcdef...
+   ```
+3. **`.exe` 빌드 및 사찰 배포 시 참고사항**:
+   - **사찰 PC에는 `.env` 파일이 필요 없습니다.** 개발 PC에 `.env` 파일이 있는 상태에서 `npm run dist`(`vite build`)를 실행하면, 빌드 시점에 `VITE_FIREBASE_*` 설정값들이 앱 번들 내부 코드에 자동으로 내장되어 `.exe` 설치 파일이 만들어집니다.
+   - 만약 팀원 간 Git 공유 시 별도로 `.env` 파일을 주고받지 않고 클론 즉시 빌드되게 하려면, `src/service/firebaseConfig.ts`의 기본값에 `firebaseConfig` 값을 직접 기입해 커밋해도 무방합니다. (Firebase 웹 `apiKey`와 `projectId`는 프로젝트 식별자이며, 실제 데이터 보안은 1단계의 Firestore 보안 규칙과 계정 비밀번호로 보호됩니다.)
+
+## 3단계: Firestore 저장 데이터 구조 (`temples/{uid}`)
+- **`temples/{uid}` (사찰 기본 및 실시간 요약 문서)**
+  - `loginId`: 사찰 로그인 아이디
+  - `templeName`: 사찰명 (Firebase 콘솔에서 원하는 사찰명으로 수정 시 앱 헤더에 반영)
+  - `isActive`: `true` (항상 `true` 유지)
+  - `lastLoginAt` / `lastActiveAt`: 최근 로그인 및 활동 시각
+  - `solapiBalance`: 현재 솔라피 문자 잔액
+  - `mdbStatus`: `{ state: 'idle' | 'syncing' | 'error', lastSyncAt, rowCount, lastError }`
+  - `locationStats`: 위치별 카드 통계 요약 객체 (`총인원`, `사용중`, `1달전`, `2주전`, `만료`)
+- **`temples/{uid}/config/settings` (환경설정 백업 문서)**
+  - 색상/폰트 크기 설정, 솔라피 API Key/Secret/발신번호 등 저장 (PC 교체 및 재설치 시 자동 복원)
+- **`temples/{uid}/sms_history/{id}` (문자 발송 이력 컬렉션)**
+  - 수동/자동 문자 발송 성공/실패 내역 및 수신자 목록
+- **`temples/{uid}/error_logs/{id}` (통합 오류 이력 컬렉션)**
+  - `category`: `'MDB_SYNC' | 'SMS_SEND' | 'AUTO_SMS' | 'APP_RUNTIME'`
+  - `message`: 오류 요약 메시지
+  - `detail`: 상세 오류 원문 및 스택 정보
+  - `createdAt`: 발생 시각
+
+---
+
 # 주요사항 체크리스트
 - MDB 연동 시 신규 감지 테스트: `ReceiveMember` 테이블에 신규 행 INSERT 후 감지 주기 이후 이력 확인
 - MDB 연동 시 수정 감지 테스트: `Member` 테이블 `UpdateDt = Now()` UPDATE 후 수정 보정 주기 이후 이력 확인
@@ -181,9 +350,13 @@ src/
 - **`services/mdbService.cjs`**: Access MDB 파일 폴링으로 신규/수정/삭제 감지 후 SQLite 동기화
 
 ## 2. 프론트엔드 (`src/`)
-- **`Dashboard.tsx`**: 메인 화면. 회원 테이블, 위치별 카드, 검색, 페이지네이션
+- **`main.tsx`**: 앱 진입점. 로그인 세션 게이트(`AppRoot`) 및 전역 런타임 에러 바운더리(`ErrorBoundary`)
+- **`Dashboard.tsx`**: 메인 화면. 회원 테이블, 위치별 카드, 검색, 페이지네이션, 클라우드 요약 동기화
+- **`components/LoginPage.tsx`**: 사찰 계정 로그인 화면 (Firebase Auth 및 로컬 테스트 모드 지원)
+- **`service/firebaseConfig.ts`**: Firebase SDK 초기화 및 환경변수(`.env`) 설정 감지
+- **`service/firebaseSyncService.ts`**: 사찰 계정 인증, 설정 백업, 요약 통계 동기화, 통합 오류 이력(`error_logs`) 기록 서비스
 - **`hooks/useMembers.ts`**: 회원 데이터 페이징 로드, 필터/정렬/검색, 로딩 상태, 초기화 로직
-- **`components/header.tsx`**: 헤더. 각종 모달 진입점 버튼
+- **`components/header.tsx`**: 헤더. 각종 모달 진입점 버튼, 로그인 계정 표시 및 로그아웃
 - **`components/memberTable.tsx`**: 회원 테이블. 로딩 오버레이, 스크롤 초기화
 - **`components/ui/`**:
   - `mdbSyncModal.tsx`: MDB 연동 설정 + 실시간 스케줄러 설정
@@ -195,9 +368,8 @@ src/
 - **`utils/macroUtils.ts`**: `{대주}` 등 치환 변수 동적 추출 유틸
 
 ## 확인필요사항 ##
-- 명단초기화 로직 확인 필요 => 초기화해도 화면상 달라지는점 없음
-  - mdb 초기화로 mdb파일에 영향이 가면 안될것 같은데 가도되는것인지는 논의 필요
+- 명단초기화 로직 확인 필요 => 초기화해도 화면상 달라지는점 없음 (10.18 로컬 DB 및 화면 즉시 갱신 완료 / 원본 MDB 파일 영향 없음)
   - 이 프로그램의 리스트 초기화기능 필요여부 논의 필요
-- 카드접기/펼치기로 변경되는 카드부분 높이값 펼치기시 카드 높이 기준으로 키우기
+- 카드접기/펼치기로 변경되는 카드부분 높이값 펼치기시 카드 높이 기준으로 키우기 (10.18 반영 완료)
 - 카드가 2개 이상일떄 전체의 카운팅이 필요할지 논의 필요
 

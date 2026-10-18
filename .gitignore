@@ -11,6 +11,7 @@ lerna-debug.log*
 /dist
 /release
 dist-ssr
+.env
 *.local
 
 # Editor directories and files

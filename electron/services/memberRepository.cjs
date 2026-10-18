@@ -253,7 +253,7 @@ function createMemberRepository(userDataPath) {
     },
 
     getMembersPage(options = {}) {
-      const { page = 1, limit = 50, location = '전체', statusFilter = '전체', search = '', sortKey = '인등번호', sortDir = 'desc', warningDays = 30, criticalDays = 14 } = options;
+      const { page = 1, limit = 50, location = '전체', statusFilter = '전체', search = '', sortKey = '신도번호', sortDir = 'desc', warningDays = 30, criticalDays = 14 } = options;
       
       let whereClause = 'WHERE deleted = 0';
       const params = [];
@@ -273,29 +273,21 @@ function createMemberRepository(userDataPath) {
       }
       
       if (statusFilter !== '전체') {
-        // Need to calculate days difference from last_payment_month
-        const nowStr = new Date().toISOString().substring(0, 7); // e.g. "2024-05"
-        // Since sqlite dates are tricky without full timestamps, it's easier to filter in memory 
-        // OR we just use basic string comparison for 'expired', 'warning' etc. 
-        // For accurate pagination, we should build the SQL properly.
-        // Actually, last_payment_month is just 'YYYY-MM'. We can use strftime on it.
-        // Let's implement a simplified date check in sqlite for the filter:
         if (statusFilter === '사용중') {
-          whereClause += " AND (last_payment_month IS NULL OR last_payment_month = '' OR date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now'))";
+          whereClause += " AND (last_payment_month IS NULL OR last_payment_month = '' OR date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now', 'localtime'))";
         } else if (statusFilter === '종료') {
-          whereClause += " AND last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') < date('now')";
+          whereClause += " AND last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') < date('now', 'localtime')";
         } else if (statusFilter === '한달전') {
-          whereClause += " AND last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now') AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', '+" + warningDays + " days')";
+          whereClause += " AND last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now', 'localtime') AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', 'localtime', '+" + warningDays + " days')";
         } else if (statusFilter === '2주전') {
-          whereClause += " AND last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now') AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', '+" + criticalDays + " days')";
+          whereClause += " AND last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now', 'localtime') AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', 'localtime', '+" + criticalDays + " days')";
         }
       }
 
-      // We cannot easily sort by arbitrary JSON keys dynamically in simple SQLite without JSON1 extension.
-      // Assuming 'data_json' is valid JSON and SQLite version supports json_extract (SQLite 3.38+ supports -> operator, older JSON1 uses json_extract).
-      // Let's use json_extract:
-      const orderBy = `ORDER BY json_extract(data_json, '$.' || ?) ${sortDir === 'asc' ? 'ASC' : 'DESC'}, id DESC`;
-      const sqlParams = [...params, sortKey, limit, (page - 1) * limit];
+      const dirSql = sortDir === 'asc' ? 'ASC' : 'DESC';
+      const extractedExpr = `json_extract(data_json, '$.' || ?)`;
+      const orderBy = `ORDER BY CASE WHEN ${extractedExpr} GLOB '[0-9]*' THEN CAST(${extractedExpr} AS INTEGER) ELSE ${extractedExpr} END ${dirSql}, ${extractedExpr} ${dirSql}, id DESC`;
+      const sqlParams = [...params, sortKey, sortKey, sortKey, sortKey, limit, (page - 1) * limit];
       
       const countSql = `SELECT COUNT(*) as count FROM members ${whereClause}`;
       const totalCount = Number(db.prepare(countSql).get(...params).count || 0);
@@ -317,10 +309,10 @@ function createMemberRepository(userDataPath) {
         SELECT 
           COALESCE(NULLIF(TRIM(location_name), ''), '미지정') as location,
           COUNT(*) as total,
-          SUM(CASE WHEN last_payment_month IS NULL OR last_payment_month = '' OR date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now') THEN 1 ELSE 0 END) as active,
-          SUM(CASE WHEN last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') < date('now') THEN 1 ELSE 0 END) as expired,
-          SUM(CASE WHEN last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now') AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', '+" + warningDays + " days') THEN 1 ELSE 0 END) as oneMonth,
-          SUM(CASE WHEN last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now') AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', '+" + criticalDays + " days') THEN 1 ELSE 0 END) as twoWeeks
+          SUM(CASE WHEN last_payment_month IS NULL OR last_payment_month = '' OR date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now', 'localtime') THEN 1 ELSE 0 END) as active,
+          SUM(CASE WHEN last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') < date('now', 'localtime') THEN 1 ELSE 0 END) as expired,
+          SUM(CASE WHEN last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now', 'localtime') AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', 'localtime', '+${Number(warningDays)} days') THEN 1 ELSE 0 END) as oneMonth,
+          SUM(CASE WHEN last_payment_month != '' AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now', 'localtime') AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', 'localtime', '+${Number(criticalDays)} days') THEN 1 ELSE 0 END) as twoWeeks
         FROM members
         WHERE deleted = 0
         GROUP BY COALESCE(NULLIF(TRIM(location_name), ''), '미지정')
@@ -364,6 +356,14 @@ function createMemberRepository(userDataPath) {
       return true;
     },
 
+    clearMdbMembers() {
+      return withTransaction(() => {
+        deleteAllMembers.run();
+        db.prepare('DELETE FROM mdb_sync_logs').run();
+        return true;
+      });
+    },
+
     addMembers(members, mode = 'append') {
       return withTransaction(() => {
         if (mode === 'overwrite') {
@@ -405,7 +405,7 @@ function createMemberRepository(userDataPath) {
 
         for (const row of rows) {
           if (!row) continue;
-          const sourceKey = getSourceKey(row);
+          const sourceKey = getSourceKey({ ...row, source: 'mdb' });
           if (!sourceKey) continue;
 
           if (isTruthyAccessValue(row.mdbDeleted)) {

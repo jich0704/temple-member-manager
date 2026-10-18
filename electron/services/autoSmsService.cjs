@@ -55,13 +55,29 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
     }
 
     const messageService = new coolsms(settings.solapiApiKey, settings.solapiApiSecret);
-    const members = memberRepository
-      ? memberRepository.loadAll()
-      : (Array.isArray(store.get('members') || {}) ? store.get('members') || [] : Object.values(store.get('members') || {}));
+    let members = [];
+    if (memberRepository && memberRepository.getMembersPage) {
+      const pageData = memberRepository.getMembersPage({
+        page: 1,
+        limit: 500000,
+        location: '전체',
+        statusFilter: '한달전',
+        warningDays: 30,
+        criticalDays: 14,
+      });
+      members = pageData?.members || [];
+    } else if (memberRepository) {
+      members = memberRepository.loadAll();
+    } else {
+      const raw = store.get('members') || {};
+      members = Array.isArray(raw) ? raw : Object.values(raw);
+    }
     
     if (members.length === 0) return;
 
-    const now = new Date();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const logPath = path.join(app.getPath('userData'), 'auto-sms-log.json');
     let autoSmsLog = {};
     if (fs.existsSync(logPath)) {
@@ -75,17 +91,20 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
 
       for (const member of members) {
         // 위치별 발송 설정 확인 (true로 명시된 경우에만 발송, 기본=미발송)
-        const memberLoc = String(member['위치명'] || '').trim();
+        const memberLoc = String(member['위치명'] || '').trim() || '미지정';
         if (!config.locationEnabled || config.locationEnabled[memberLoc] !== true) continue;
 
-        const expireStr = member['최종납부월'] || member['납부만료월'] || '';
+        const rawPhone = String(member.phone || member['휴대폰'] || member['전화번호'] || member['연락처'] || '').replace(/[^0-9]/g, '');
+        if (!rawPhone) continue;
+
+        const expireStr = String(member['최종납부월'] || member['납부만료월'] || '').trim();
         if (!expireStr) continue;
 
-        const [yyyy, mm] = expireStr.split('.').map(Number);
+        const [yyyy, mm] = expireStr.split(/[-.]/).map(Number);
         if (!yyyy || !mm) continue;
 
-        const expireDate = new Date(yyyy, mm - 1, 1);
-        const diffMs = expireDate.getTime() - now.getTime();
+        const expireDate = new Date(yyyy, mm, 0, 23, 59, 59, 999);
+        const diffMs = expireDate.getTime() - today.getTime();
         const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
         let shouldSend = false;
@@ -99,10 +118,10 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
           const dongchamja = member['동참자'] || '';
           
           const uniqueKey = `${shindoNo}_${daeju}_${dongchamja}`;
-          const duplicateKey = `${uniqueKey}_${rule.type}_${yyyy}-${mm}`;
+          const duplicateKey = `${uniqueKey}_${rule.type}_${yyyy}-${String(mm).padStart(2, '0')}`;
           
           if (!autoSmsLog[duplicateKey]) {
-            validTargets.push({ member, duplicateKey });
+            validTargets.push({ member, duplicateKey, rawPhone });
           }
         }
       }
@@ -117,7 +136,7 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
         });
 
         return {
-          to: String(t.member['연락처'] || '').replace(/[^0-9]/g, ''),
+          to: t.rawPhone,
           from: settings.solapiSenderNumber.replace(/[^0-9]/g, ''),
           text: finalMessage,
         };
@@ -141,7 +160,10 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
           date: new Date().toISOString(),
           template: `[자동 발송: ${typeLabel}]\n${rule.template}`,
           hasImage: false,
-          targets: validTargets.map(t => ({ name: t.member.name || t.member['대주'] || '이름없음', phone: t.member.phone || t.member['연락처'] || '' })),
+          targets: validTargets.map(t => ({
+            name: t.member.name || t.member['동참자'] || t.member['대주'] || t.member['이름'] || '이름없음',
+            phone: t.member.phone || t.member['휴대폰'] || t.member['전화번호'] || t.member['연락처'] || ''
+          })),
           success: true,
           result
         });

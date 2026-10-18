@@ -76,8 +76,9 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
           finalMessage = finalMessage.replace(regex, String(t[key] || ''));
         });
 
+        const rawPhone = t.phone || t['휴대폰'] || t['전화번호'] || t['연락처'] || '';
         const msgObj = {
-          to: String(t['연락처']).replace(/[^0-9]/g, ''),
+          to: String(rawPhone).replace(/[^0-9]/g, ''),
           from: settings.solapiSenderNumber.replace(/[^0-9]/g, ''),
           text: finalMessage,
         };
@@ -98,7 +99,10 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
         template: message,
         hasImage: !!imageBase64,
         imageBase64: imageBase64 || undefined,
-        targets: targets.map(t => ({ name: t.name || t['대주'] || '이름없음', phone: t.phone || t['연락처'] || '' })),
+        targets: targets.map(t => ({
+          name: t.name || t['동참자'] || t['대주'] || t['이름'] || '이름없음',
+          phone: t.phone || t['휴대폰'] || t['전화번호'] || t['연락처'] || ''
+        })),
         success: true,
         result: sendResult
       });
@@ -106,6 +110,22 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
       return { success: true, result: sendResult };
     } catch (error) {
       console.error('문자 발송 실패:', error);
+      try {
+        const { targets = [], message = '', imageBase64 } = payload || {};
+        saveSmsHistory({
+          id: Date.now().toString(),
+          date: new Date().toISOString(),
+          template: message,
+          hasImage: !!imageBase64,
+          imageBase64: imageBase64 || undefined,
+          targets: targets.map(t => ({
+            name: t.name || t['동참자'] || t['대주'] || t['이름'] || '이름없음',
+            phone: t.phone || t['휴대폰'] || t['전화번호'] || t['연락처'] || ''
+          })),
+          success: false,
+          errorMsg: error.message
+        });
+      } catch {}
       return { success: false, error: error.message };
     }
   });

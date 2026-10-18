@@ -129,10 +129,13 @@ const MemberTable = ({
 
   const tableGridStyle = useMemo(() => {
     const dataColumnWidths = visibleHeaders.map(getColumnWidth);
+    const dynamicCols = dataColumnWidths
+      .map((width) => `minmax(${width}px, ${width}fr)`)
+      .join(' ');
     return {
-      gridTemplateColumns: `48px ${dataColumnWidths.map((width) => `${width}px`).join(' ')} 128px 64px 64px`,
+      gridTemplateColumns: `48px ${dynamicCols} 128px 64px 64px`,
       minWidth: Math.max(
-        48 + dataColumnWidths.reduce((total, width) => total + width, 0) + 128 + 64 + 64 + 96,
+        48 + dataColumnWidths.reduce((total, width) => total + width, 0) + 128 + 64 + 64 + 48,
         720
       ),
     };
@@ -284,15 +287,27 @@ const MemberTable = ({
             style={tableGridStyle}
           >
             <div className="flex items-center"></div>
-            {visibleHeaders.map((header) => (
-              <div
-                key={header}
-                onClick={() => handleSort(header)}
-                className="flex cursor-pointer items-center justify-center gap-2 px-2 py-3 text-center text-[length:var(--member-list-font-size)] text-gray-700 hover:text-blue-600 select-none group relative min-w-0 leading-snug"
-              >
-                <span className="whitespace-normal break-keep">{header}</span>
-              </div>
-            ))}
+            {visibleHeaders.map((header) => {
+              const isSorted = sortConfig?.key === header;
+              return (
+                <div
+                  key={header}
+                  onClick={() => handleSort(header)}
+                  className="flex cursor-pointer items-center justify-center gap-1 px-2 py-3 text-center text-[length:var(--member-list-font-size)] text-gray-700 hover:text-blue-600 select-none group relative min-w-0 leading-snug"
+                >
+                  <span className="whitespace-normal break-keep">{header}</span>
+                  {isSorted ? (
+                    sortConfig.direction === 'asc' ? (
+                      <ArrowUp className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    ) : (
+                      <ArrowDown className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    )
+                  ) : (
+                    <ArrowUpDown className="w-3.5 h-3.5 text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  )}
+                </div>
+              );
+            })}
             <div className="flex items-center justify-center text-center text-gray-700">상태</div>
             <div className="flex items-center justify-center text-center text-gray-700">SMS</div>
             <div className="flex items-center justify-center text-center text-gray-700">삭제</div>
@@ -436,7 +451,7 @@ const StatusDisplay = ({ status, lastPaymentMonth, settings }: { status: string;
     return <StatusBadge text={status} colorClass={status === '비활동' || status === '종료' ? settings.expiredColor : settings.safeColor} />;
   }
 
-  const [yearStr, monthStr] = lastPaymentMonth.split('-');
+  const [yearStr, monthStr] = lastPaymentMonth.split(/[-.]/);
   if (!yearStr || !monthStr) {
     return <StatusBadge text={status} colorClass={settings.expiredColor} />;
   }

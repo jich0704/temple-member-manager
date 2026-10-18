@@ -29,4 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   getLocationStats: (options) => ipcRenderer.invoke('get-location-stats', options),
   getMdbSyncLogs: (options) => ipcRenderer.invoke('get-mdb-sync-logs', options),
   clearMdbSyncLogs: () => ipcRenderer.invoke('clear-mdb-sync-logs'),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 });
+

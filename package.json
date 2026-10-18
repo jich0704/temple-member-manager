@@ -2,16 +2,22 @@
   "name": "temple-member-manager",
   "main": "electron/main.cjs",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.1",
   "type": "module",
+
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
     "dev:electron": "wait-on http://localhost:5173 && electron .",
     "prebuild": "taskkill /IM \"Temple Member Manager.exe\" /F || echo 'No running process' && rd /s /q release || echo 'No release folder'",
     "build": "vite build",
-    "dist": "npm run prebuild && npm run build && electron-builder --win --x64 --ia32"
+    "dist": "npm run prebuild && npm run build && electron-builder --win --x64 --ia32",
+    "dist:publish": "npm run prebuild && npm run build && electron-builder --win --x64 --ia32 --publish always",
+    "release": "npm version patch && git push --follow-tags",
+    "release:minor": "npm version minor && git push --follow-tags",
+    "release:major": "npm version major && git push --follow-tags"
   },
+
   "build": {
     "appId": "com.example.templemanager",
     "productName": "신도관리시스템",
@@ -42,7 +48,13 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
-    "publish": null
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jich0704",
+        "repo": "temple-member-manager"
+      }
+    ]
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -52,6 +64,8 @@
     "concurrently": "^9.2.1",
     "coolsms-node-sdk": "^2.1.0",
     "electron-store": "^11.0.2",
+    "electron-updater": "^6.8.9",
+    "firebase": "^13.0.0",
     "lucide-react": "^0.574.0",
     "radix-ui": "^1.4.3",
     "react": "^18.2.0",

@@ -1,6 +1,13 @@
-import React, { StrictMode, Component, ErrorInfo, ReactNode } from 'react';
+import React, { StrictMode, Component, ErrorInfo, ReactNode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import Dashboard from './Dashboard';
+import { LoginPage } from './components/LoginPage';
+import {
+  getSavedSession,
+  logoutTempleAccount,
+  logTempleError,
+  type TempleAccount,
+} from './service/firebaseSyncService';
 import './index.css';
 
 interface Props {
@@ -26,6 +33,11 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
+    const saved = getSavedSession();
+    logTempleError(saved?.uid, 'APP_RUNTIME', error.message, {
+      stack: error.stack || '',
+      componentStack: errorInfo.componentStack || '',
+    });
     this.setState({
       error,
       errorInfo
@@ -49,10 +61,26 @@ class ErrorBoundary extends Component<Props, State> {
   }
 }
 
+const AppRoot = () => {
+  const [account, setAccount] = useState<TempleAccount | null>(() => getSavedSession());
+
+  const handleLogout = async () => {
+    await logoutTempleAccount();
+    setAccount(null);
+  };
+
+  if (!account) {
+    return <LoginPage onLoginSuccess={(acc) => setAccount(acc)} />;
+  }
+
+  return <Dashboard account={account} onLogout={handleLogout} />;
+};
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <Dashboard />
+      <AppRoot />
     </ErrorBoundary>
   </StrictMode>,
 );
+

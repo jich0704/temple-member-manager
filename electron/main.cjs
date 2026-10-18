@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, shell, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, screen, dialog } = require('electron');
 const path = require('path');
 const Store = require('electron-store').default;
+const { autoUpdater } = require('electron-updater');
 
 const setupMemberService = require('./services/memberService.cjs');
 const setupSmsService = require('./services/smsService.cjs');
@@ -115,6 +116,45 @@ function saveWindowState(win) {
   });
 }
 
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[AutoUpdater] 새 버전 감지됨:', info.version);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[AutoUpdater] 업데이트 다운로드 완료:', info.version);
+    dialog
+      .showMessageBox({
+        type: 'info',
+        title: '업데이트 준비 완료',
+        message: `새로운 버전(v${info.version})이 다운로드되었습니다.\n지금 재시작하여 업데이트를 적용하시겠습니까?`,
+        buttons: ['지금 재시작', '나중에 (종료 시 자동 적용)'],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then((result) => {
+        if (result.response === 0) {
+          autoUpdater.quitAndInstall(false, true);
+        }
+      });
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.warn('[AutoUpdater] 업데이트 확인 중 오류:', err?.message || err);
+  });
+
+  if (app.isPackaged) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.warn('[AutoUpdater] 초기 업데이트 체크 실패:', err?.message || err);
+      });
+    }, 3000);
+  }
+}
+
 function createWindow() {
   const windowState = getSavedWindowState();
   const win = new BrowserWindow({
@@ -155,6 +195,23 @@ app.whenReady().then(() => {
   const { saveSmsHistory } = setupSmsService(ipcMain, settingsStore, app);
   setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory, memberRepository);
   setupMdbService(ipcMain, memberRepository, settingsStore, app);
+  setupAutoUpdater();
+
+  ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
+  });
+
+  ipcMain.handle('check-for-updates', async () => {
+    if (!app.isPackaged) {
+      return { ok: false, message: '자동 업데이트 확인은 설치된 배포판(.exe)에서 동작합니다.' };
+    }
+    try {
+      const res = await autoUpdater.checkForUpdates();
+      return { ok: true, version: res?.updateInfo?.version || app.getVersion() };
+    } catch (error) {
+      return { ok: false, message: error?.message || '업데이트 확인 실패' };
+    }
+  });
 
   ipcMain.handle('open-external', async (_, url) => {
     await shell.openExternal(url);
@@ -184,3 +241,4 @@ app.whenReady().then(() => {
     }
   });
 });
+

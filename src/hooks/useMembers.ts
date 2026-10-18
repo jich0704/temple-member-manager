@@ -26,7 +26,7 @@ export const useMembers = (
   activeFilter: string = '전체',
   page: number = 1,
   limit: number = 50,
-  sortKey: string = '인등번호',
+  sortKey: string = '신도번호',
   sortDir: 'asc' | 'desc' = 'desc',
   searchQuery: string = ''
 ) => {
@@ -229,10 +229,15 @@ export const useMembers = (
     exportToExcel(allData.members);
   }, [activeLocation, activeFilter, searchQuery, sortKey, sortDir]);
 
+  const refreshAll = useCallback(async () => {
+    await loadStatsAndHistory();
+    await reloadMembersRef.current();
+  }, [loadStatsAndHistory]);
+
   return {
     members, totalCount, totalPages, isLoading,
     stats, locationStats,
     handleUpload, handleDeleteMembers, handleExportExcel,
-    reloadMembers, settings, handleUpdateSettings,
+    reloadMembers, refreshAll, settings, handleUpdateSettings,
   };
 };
