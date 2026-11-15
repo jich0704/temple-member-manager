@@ -1,6 +1,9 @@
 import {
+  onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
+  type Unsubscribe,
+  type User,
 } from 'firebase/auth';
 import {
   doc,
@@ -8,8 +11,15 @@ import {
   setDoc,
   collection,
   addDoc,
+  onSnapshot,
 } from 'firebase/firestore';
-import { auth, db, isFirebaseConfigured } from './firebaseConfig';
+import {
+  auth,
+  configureAuthPersistence,
+  db,
+  isFirebaseConfigured,
+  isLocalAuthBypassAllowed,
+} from './firebaseConfig';
 import type { Settings, SmsHistoryItem } from '../types/member';
 
 export interface TempleAccount {
@@ -46,6 +56,12 @@ export interface TempleSummaryPatch {
 const DEFAULT_EMAIL_DOMAIN = 'temple-manager.app';
 const SESSION_STORAGE_KEY = 'temple_auth_session';
 
+export type TempleAuthState =
+  | { status: 'loading' }
+  | { status: 'signed-out'; message?: string }
+  | { status: 'configuration-error'; message: string }
+  | { status: 'authenticated'; account: TempleAccount };
+
 /**
  * 일반 아이디('jogyesa')를 입력해도 Firebase 이메일 로그인에 사용할 수 있도록 변환
  */
@@ -56,18 +72,34 @@ export function toFirebaseEmail(loginId: string): string {
 }
 
 export function getSavedSession(): TempleAccount | null {
+  // 실제 Firebase 계정의 로그인 상태는 localStorage가 아니라 onAuthStateChanged로만 복원한다.
+  // 이 저장값은 Firebase 없이 화면을 확인하는 개발 전용 우회 모드에서만 사용한다.
+  if (!isLocalAuthBypassAllowed) {
+    try {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {
+      // ignore storage errors
+    }
+    return null;
+  }
   try {
     const raw = localStorage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as TempleAccount;
+    const account = JSON.parse(raw) as TempleAccount;
+    return account.isLocalMode ? account : null;
   } catch {
     return null;
   }
 }
 
+/** ErrorBoundary 등 React 훅 밖에서 현재 실제 Firebase 사용자만 조회할 때 사용한다. */
+export function getCurrentAuthenticatedUid(): string | undefined {
+  return auth?.currentUser?.uid;
+}
+
 export function saveSession(account: TempleAccount | null, remember: boolean = true) {
   try {
-    if (!account || !remember) {
+    if (!isLocalAuthBypassAllowed || !account || !account.isLocalMode || !remember) {
       localStorage.removeItem(SESSION_STORAGE_KEY);
       return;
     }
@@ -77,8 +109,99 @@ export function saveSession(account: TempleAccount | null, remember: boolean = t
   }
 }
 
+function configurationErrorMessage(): string {
+  return 'Firebase 연결 설정이 없습니다. 운영 배포본은 Firebase 환경변수와 사찰 계정이 반드시 필요합니다.';
+}
+
+async function getApprovedTempleAccount(user: User): Promise<TempleAccount | null> {
+  if (!db) return null;
+
+  const templeRef = doc(db, 'temples', user.uid);
+  const templeSnap = await getDoc(templeRef);
+  if (!templeSnap.exists()) return null;
+
+  const data = templeSnap.data();
+  if (data.isActive !== true) return null;
+
+  return {
+    uid: user.uid,
+    loginId: typeof data.loginId === 'string' ? data.loginId : user.email?.split('@')[0] || user.uid,
+    templeName: typeof data.templeName === 'string' ? data.templeName : user.email?.split('@')[0] || '사찰',
+    isActive: true,
+    isLocalMode: false,
+  };
+}
+
 /**
- * 사찰 계정 로그인 (Firebase 미설정 시 로컬 데모 로그인 지원)
+ * 운영 환경의 유일한 로그인 복원 경로.
+ * localStorage 값만으로 대시보드에 진입하지 못하도록 Firebase 세션과 사찰 승인 문서를 함께 확인한다.
+ */
+export function observeTempleAuthState(
+  onChange: (state: TempleAuthState) => void
+): Unsubscribe {
+  const firebaseAuth = auth;
+  const firestoreDb = db;
+  if (!isFirebaseConfigured || !firebaseAuth || !firestoreDb) {
+    if (isLocalAuthBypassAllowed) {
+      const saved = getSavedSession();
+      onChange(saved ? { status: 'authenticated', account: saved } : { status: 'signed-out' });
+    } else {
+      onChange({ status: 'configuration-error', message: configurationErrorMessage() });
+    }
+    return () => {};
+  }
+
+  let disposed = false;
+  let profileUnsubscribe: Unsubscribe | null = null;
+  const stopProfileObserver = () => {
+    profileUnsubscribe?.();
+    profileUnsubscribe = null;
+  };
+  const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
+    if (!user) {
+      stopProfileObserver();
+      onChange({ status: 'signed-out' });
+      return;
+    }
+
+    try {
+      const account = await getApprovedTempleAccount(user);
+      if (disposed) return;
+      if (!account) {
+        await signOut(firebaseAuth);
+        if (!disposed) {
+          onChange({ status: 'signed-out', message: '승인되지 않았거나 비활성화된 사찰 계정입니다.' });
+        }
+        return;
+      }
+
+      stopProfileObserver();
+      profileUnsubscribe = onSnapshot(doc(firestoreDb, 'temples', account.uid), async (snapshot) => {
+        if (disposed || (snapshot.exists() && snapshot.data().isActive === true)) return;
+        await signOut(firebaseAuth);
+        if (!disposed) {
+          onChange({ status: 'signed-out', message: '비활성화되었거나 삭제된 사찰 계정입니다.' });
+        }
+      }, () => {
+        // 네트워크 일시 장애는 이미 열린 로컬 화면을 즉시 로그아웃시키지 않는다.
+      });
+      onChange({ status: 'authenticated', account });
+    } catch {
+      if (!disposed) {
+        onChange({ status: 'signed-out', message: '사찰 계정 정보를 확인하지 못했습니다. 네트워크 연결을 확인해 주세요.' });
+      }
+    }
+  });
+
+  return () => {
+    disposed = true;
+    stopProfileObserver();
+    unsubscribe();
+  };
+}
+
+/**
+ * 사찰 계정 로그인. Firebase 없는 로그인은 개발 전용 환경변수를 켠 경우에만 가능하다.
  */
 export async function loginTempleAccount(
   loginId: string,
@@ -90,8 +213,11 @@ export async function loginTempleAccount(
     return { ok: false, error: '아이디와 비밀번호를 모두 입력해 주세요.' };
   }
 
-  // 1) 아직 Firebase 프로젝트 키가 설정되지 않은 경우 로컬 모드로 동작
+  // 1) 개발 서버에서 명시적으로 허용한 경우에만 로컬 화면 점검 모드로 동작
   if (!isFirebaseConfigured || !auth || !db) {
+    if (!isLocalAuthBypassAllowed) {
+      return { ok: false, error: configurationErrorMessage() };
+    }
     const localAccount: TempleAccount = {
       uid: `local-${cleanId}`,
       loginId: cleanId,
@@ -103,49 +229,24 @@ export async function loginTempleAccount(
     return { ok: true, account: localAccount };
   }
 
-  // 2) Firebase Auth 로그인 및 Firestore 사찰 문서 초기화/확인
+  // 2) Firebase Auth 로그인 및 관리자가 사전에 만든 사찰 승인 문서 확인
   try {
+    await configureAuthPersistence(rememberMe);
     const email = toFirebaseEmail(cleanId);
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    const uid = cred.user.uid;
     const nowIso = new Date().toISOString();
 
-    const templeRef = doc(db, 'temples', uid);
-    const templeSnap = await getDoc(templeRef);
-
-    let templeName = cleanId;
-    if (templeSnap.exists()) {
-      const data = templeSnap.data();
-      templeName = data.templeName || cleanId;
-      await setDoc(
-        templeRef,
-        {
-          loginId: cleanId,
-          isActive: true,
-          lastLoginAt: nowIso,
-          lastActiveAt: nowIso,
-        },
-        { merge: true }
-      );
-    } else {
-      await setDoc(templeRef, {
-        loginId: cleanId,
-        templeName: cleanId,
-        isActive: true,
-        createdAt: nowIso,
-        lastLoginAt: nowIso,
-        lastActiveAt: nowIso,
-      });
+    const account = await getApprovedTempleAccount(cred.user);
+    if (!account) {
+      await signOut(auth);
+      return { ok: false, error: '승인되지 않았거나 비활성화된 사찰 계정입니다. 관리자에게 문의해 주세요.' };
     }
 
-    const account: TempleAccount = {
-      uid,
-      loginId: cleanId,
-      templeName,
-      isActive: true,
-      isLocalMode: false,
-    };
-    saveSession(account, rememberMe);
+    // isActive, loginId, templeName은 관리 전용 필드이며 클라이언트는 활동 시각만 기록한다.
+    await setDoc(doc(db, 'temples', account.uid), {
+      lastLoginAt: nowIso,
+      lastActiveAt: nowIso,
+    }, { merge: true });
     return { ok: true, account };
   } catch (error: any) {
     const code = error?.code || '';
@@ -182,7 +283,6 @@ export async function syncTempleSummary(uid: string, patch: TempleSummaryPatch):
       templeRef,
       {
         ...patch,
-        isActive: true,
         lastActiveAt: new Date().toISOString(),
       },
       { merge: true }

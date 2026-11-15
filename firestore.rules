@@ -1,0 +1,47 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isTempleOwner(templeId) {
+      return request.auth != null && request.auth.uid == templeId;
+    }
+
+    // 계정 비활성화 시 이미 발급된 Firebase 토큰이 남아 있더라도 하위 운영 데이터 접근을 막는다.
+    function isActiveTempleOwner(templeId) {
+      return isTempleOwner(templeId)
+        && get(/databases/$(database)/documents/temples/$(templeId)).data.isActive == true;
+    }
+
+    // 사찰 기본 프로필은 관리자(Admin SDK)만 만들고, 앱은 운영 상태 필드를 수정하지 못한다.
+    function changesOnly(allowedKeys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys);
+    }
+
+    match /temples/{templeId} {
+      allow get: if isTempleOwner(templeId);
+      allow list, create, delete: if false;
+      allow update: if isActiveTempleOwner(templeId)
+        && changesOnly([
+          'lastLoginAt',
+          'lastActiveAt',
+          'appVersion',
+          'solapiBalance',
+          'mdbStatus',
+          'locationStats'
+        ]);
+
+      match /config/settings {
+        allow read, write: if isActiveTempleOwner(templeId);
+      }
+
+      match /sms_history/{historyId} {
+        allow read, write: if isActiveTempleOwner(templeId);
+      }
+
+      match /error_logs/{errorId} {
+        allow read, create: if isActiveTempleOwner(templeId);
+        allow update, delete: if false;
+      }
+    }
+  }
+}

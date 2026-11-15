@@ -183,10 +183,10 @@ src/
 - MDB 데이터 초기화(`clear-mdb-data`) 시 SQLite 즉시 삭제(`clearMdbMembers`) 및 프론트엔드 위치 카드 통계·회원 목록 즉시 갱신 처리
 
 ## 5. 사찰 계정 로그인 화면 및 Firebase 클라우드 동기화 아키텍처 구축
-- **로그인 화면(`LoginPage.tsx`)**: 사찰 아이디/비밀번호 로그인, 자동 로그인(세션 유지), 헤더 계정 표시 및 로그아웃 기능 추가 (Firebase 키 미설정 시 로컬 테스트 모드로 자동 전환)
+- **로그인 화면(`LoginPage.tsx`)**: Firebase Auth 사찰 아이디/비밀번호 로그인, 실제 Firebase 세션 기반 자동 로그인, 헤더 계정 표시 및 로그아웃 기능 추가 (로컬 테스트 로그인은 개발 서버에서 명시적으로 활성화한 경우에만 허용)
 - **하이브리드 데이터 구조(`firebaseSyncService.ts`)**:
   - 48만 건의 대용량 MDB 원본 회원 데이터는 로컬 SQLite(`members.db`)에서 고속 처리
-  - Firestore(`temples/{uid}`)에는 사찰 계정 정보(`isActive: true`), 현재 설치된 앱 버전(`appVersion`), 실시간 요약 통계(`locationStats`), 솔라피 잔액(`solapiBalance`), MDB 동기화 상태(`mdbStatus`), 환경설정(`config/settings`), 문자 발송 이력(`sms_history`), 통합 오류 이력(`error_logs`)만 경량 동기화
+  - Firestore(`temples/{uid}`)에는 관리자 승인 사찰 계정 정보(`isActive`), 현재 설치된 앱 버전(`appVersion`), 실시간 요약 통계(`locationStats`), 솔라피 잔액(`solapiBalance`), MDB 동기화 상태(`mdbStatus`), 환경설정(`config/settings`), 문자 발송 이력용 경로(`sms_history`), 통합 오류 이력(`error_logs`)만 경량 동기화
 
 ## 6. 원격 자동 업데이트(`electron-updater`) 및 앱 버전 표기 적용
 - 로그인 화면 우측 상단 및 메인 대시보드 우측 상단 헤더에 현재 앱 버전(`v1.0.0`) 표기 추가
@@ -269,66 +269,101 @@ src/
 ---
 
 
-# Firebase 클라우드 연동 가이드 (추후 프로젝트 생성 시)
+# Firebase 운영 인증 및 배포 가이드
 
+운영 로그인은 **Firebase Authentication 사용자**와 **Firestore의
+`temples/{uid}` 승인 프로필**이 모두 있어야 가능합니다. Firebase Auth 사용자만
+만들어서는 앱에 접근할 수 없습니다. 운영 빌드에 Firebase 설정이 없으면 로그인 화면을
+우회하지 않고 설정 오류를 표시합니다.
 
-현재 `.env`에 Firebase 키가 없으면 자동으로 **로컬 테스트 모드**로 동작하며, 아래 절차만 진행하면 즉시 클라우드 연동 모드로 전환됩니다.
+## 1. Firebase 콘솔 최초 설정
 
-## 1단계: Firebase 프로젝트 생성 및 서비스 활성화
-1. [Firebase 콘솔](https://console.firebase.google.com/) 접속 → **[프로젝트 추가]** 클릭 후 프로젝트 생성
-2. **Authentication 활성화**:
-   - 좌측 메뉴 **빌드 > Authentication > 시작하기** 클릭
-   - **Sign-in method(로그인 방법)** 탭에서 **[이메일/비밀번호]** 사용 설정 후 저장
-   - **Users(사용자)** 탭에서 사찰 계정 추가:
-     - 아이디가 `jogyesa`인 경우 이메일란에 **`jogyesa@temple-manager.app`** 형식으로 등록하고 비밀번호 설정 (앱 로그인 창에서는 `jogyesa`만 입력해도 자동으로 `@temple-manager.app`을 붙여 로그인 처리됨)
-3. **Firestore Database 활성화**:
-   - 좌측 메뉴 **빌드 > Firestore Database > 데이터베이스 만들기** 클릭
-   - 위치 선택(예: `asia-northeast3 (서울)`) 후 생성
-   - **규칙(Rules)** 탭에서 로그인된 사찰이 본인 데이터(`temples/{uid}`)를 읽고 쓸 수 있도록 아래와 같이 설정:
-     ```javascript
-     rules_version = '2';
-     service cloud.firestore {
-       match /databases/{database}/documents {
-         match /temples/{userId}/{document=**} {
-           allow read, write: if request.auth != null && request.auth.uid == userId;
-         }
-       }
-     }
-     ```
+1. [Firebase 콘솔](https://console.firebase.google.com/)에서 프로젝트를 만들고,
+   **Authentication > Sign-in method**에서 **이메일/비밀번호**를 사용 설정합니다.
+   앱 안에서는 회원가입을 제공하지 않습니다.
+2. **Firestore Database**를 `asia-northeast3`(서울) 등 운영 지역으로 생성합니다.
+3. **프로젝트 설정 > 내 앱 > 웹 앱**에서 설정 값을 확인하고, 프로젝트 루트의
+   `.env.example`을 `.env`로 복사해 모든 `VITE_FIREBASE_*` 값을 입력합니다.
+4. Firebase 없이 UI를 점검하는 개발 상황에서만 `.env`에
+   `VITE_ENABLE_LOCAL_AUTH_BYPASS=true`를 추가합니다. 이 우회는 `npm run dev`에서만
+   동작하며, `npm run build`로 만든 운영 앱에서는 항상 차단됩니다.
 
-## 2단계: 앱에 Firebase 키 연결 및 `.exe` 배포 시 동작 방식
-1. Firebase 콘솔 좌측 상단 **프로젝트 설정(⚙️) > 일반 > 내 앱**에서 **웹(`</>`) 앱 추가** 클릭 후 `firebaseConfig` 값 확인
-2. 프로젝트 루트의 `.env.example` 파일을 복사해 `.env` 파일을 생성하고 아래 값을 채워 넣습니다:
-   ```env
-   VITE_FIREBASE_API_KEY=AIzaSy...
-   VITE_FIREBASE_AUTH_DOMAIN=프로젝트ID.firebaseapp.com
-   VITE_FIREBASE_PROJECT_ID=프로젝트ID
-   VITE_FIREBASE_STORAGE_BUCKET=프로젝트ID.firebasestorage.app
-   VITE_FIREBASE_MESSAGING_SENDER_ID=1234567890
-   VITE_FIREBASE_APP_ID=1:1234567890:web:abcdef...
-   ```
-3. **`.exe` 빌드 및 사찰 배포 시 참고사항**:
-   - **사찰 PC에는 `.env` 파일이 필요 없습니다.** 개발 PC에 `.env` 파일이 있는 상태에서 `npm run dist`(`vite build`)를 실행하면, 빌드 시점에 `VITE_FIREBASE_*` 설정값들이 앱 번들 내부 코드에 자동으로 내장되어 `.exe` 설치 파일이 만들어집니다.
-   - 만약 팀원 간 Git 공유 시 별도로 `.env` 파일을 주고받지 않고 클론 즉시 빌드되게 하려면, `src/service/firebaseConfig.ts`의 기본값에 `firebaseConfig` 값을 직접 기입해 커밋해도 무방합니다. (Firebase 웹 `apiKey`와 `projectId`는 프로젝트 식별자이며, 실제 데이터 보안은 1단계의 Firestore 보안 규칙과 계정 비밀번호로 보호됩니다.)
+## 2. Firestore 보안 규칙 배포
 
-## 3단계: Firestore 저장 데이터 구조 (`temples/{uid}`)
-- **`temples/{uid}` (사찰 기본 및 실시간 요약 문서)**
-  - `loginId`: 사찰 로그인 아이디
-  - `templeName`: 사찰명 (Firebase 콘솔에서 원하는 사찰명으로 수정 시 앱 헤더에 반영)
-  - `isActive`: `true` (항상 `true` 유지)
-  - `lastLoginAt` / `lastActiveAt`: 최근 로그인 및 활동 시각
-  - `solapiBalance`: 현재 솔라피 문자 잔액
-  - `mdbStatus`: `{ state: 'idle' | 'syncing' | 'error', lastSyncAt, rowCount, lastError }`
-  - `locationStats`: 위치별 카드 통계 요약 객체 (`총인원`, `사용중`, `1달전`, `2주전`, `만료`)
-- **`temples/{uid}/config/settings` (환경설정 백업 문서)**
-  - 색상/폰트 크기 설정, 솔라피 API Key/Secret/발신번호 등 저장 (PC 교체 및 재설치 시 자동 복원)
-- **`temples/{uid}/sms_history/{id}` (문자 발송 이력 컬렉션)**
-  - 수동/자동 문자 발송 성공/실패 내역 및 수신자 목록
-- **`temples/{uid}/error_logs/{id}` (통합 오류 이력 컬렉션)**
-  - `category`: `'MDB_SYNC' | 'SMS_SEND' | 'AUTO_SMS' | 'APP_RUNTIME'`
-  - `message`: 오류 요약 메시지
-  - `detail`: 상세 오류 원문 및 스택 정보
-  - `createdAt`: 발생 시각
+저장소의 [firebase.json](firebase.json)과 [firestore.rules](firestore.rules)을
+Firebase CLI로 배포합니다. 기존의 모든 하위 경로 쓰기를 허용하는 단순 규칙을 사용하면
+안 됩니다.
+
+```bash
+npx firebase-tools login
+npx firebase-tools use --add
+npm run firebase:deploy-rules
+```
+
+배포된 규칙은 사찰이 자기 `temples/{uid}` 경로만 읽게 하며, `loginId`,
+`templeName`, `isActive` 같은 승인 필드는 앱에서 변경하지 못하게 막습니다. 계정이
+비활성화되면 남아 있는 인증 토큰으로도 하위 운영 데이터에 접근할 수 없습니다.
+
+## 3. 사찰 계정 생성·승인·비활성화
+
+사찰 계정은 Firebase 콘솔에서 개별 생성하지 말고, 저장소의 관리자 도구를 사용합니다.
+이 도구는 Firebase Auth 사용자와 Firestore 승인 프로필을 한 번에 처리합니다.
+
+1. Google Cloud Console에서 해당 Firebase 프로젝트의 서비스 계정 JSON 키를 만들고,
+   관리자 PC의 안전한 경로에만 보관합니다. Git에 올리면 안 됩니다.
+2. 서비스 계정 경로를 설정합니다.
+
+```bash
+# macOS / Linux
+export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/service-account.json"
+
+# Windows PowerShell
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\secure\service-account.json"
+```
+
+3. 프로젝트 의존성을 설치한 뒤 아래 명령으로 계정을 관리합니다. 로그인 아이디
+   `jogyesa`는 Firebase 이메일 `jogyesa@temple-manager.app`으로 생성됩니다.
+
+```bash
+npm install
+
+# 새 사찰 계정 생성 및 승인
+npm run firebase:manage-temple -- --login-id jogyesa --temple-name "조계사" --password "초기-안전-비밀번호"
+
+# 계정 비활성화 또는 재활성화
+npm run firebase:manage-temple -- --login-id jogyesa --active false
+npm run firebase:manage-temple -- --login-id jogyesa --active true
+
+# 비밀번호 재설정
+npm run firebase:manage-temple -- --login-id jogyesa --password "새-안전-비밀번호" --reset-password
+```
+
+상세 절차는 [Firebase 운영 배포 문서](docs/firebase-deployment.md)를 참고합니다.
+처음 Firebase를 실제 연결하거나 운영 설치본을 검증할 때는
+[Firebase 인증 연동: 남은 작업 실행 가이드](docs/firebase-remaining-work.md)를 순서대로 진행하세요.
+
+## 4. Firestore 저장 구조와 권한
+
+- **`temples/{uid}`**: 관리자만 생성·승인 상태를 수정합니다.
+  - 관리자 전용: `loginId`, `templeName`, `isActive`, `createdAt`, `updatedAt`
+  - 앱 기록용: `lastLoginAt`, `lastActiveAt`, `appVersion`, `solapiBalance`,
+    `mdbStatus`, `locationStats`
+- **`temples/{uid}/config/settings`**: 사찰별 환경설정 백업입니다. 솔라피 API Secret을
+  포함할 수 있으므로 서비스 계정과 사찰 계정을 엄격히 관리해야 합니다.
+- **`temples/{uid}/sms_history/{id}`**: 문자 발송 이력용 경로입니다.
+- **`temples/{uid}/error_logs/{id}`**: 오류 이력용 경로입니다. 앱에서는 추가만 가능하며
+  수정·삭제는 막습니다.
+
+## 5. 운영 배포 전 확인
+
+```bash
+npm install
+npm run build
+```
+
+활성 사찰 계정은 로그인되고, 비활성 계정은 거부되는지 확인합니다. Firebase 환경변수가
+없는 운영 빌드에서는 설정 오류 화면이 표시되어야 합니다. 개발 로컬 우회와 운영 배포판을
+혼용하지 마세요.
 
 ---
 
@@ -352,9 +387,9 @@ src/
 ## 2. 프론트엔드 (`src/`)
 - **`main.tsx`**: 앱 진입점. 로그인 세션 게이트(`AppRoot`) 및 전역 런타임 에러 바운더리(`ErrorBoundary`)
 - **`Dashboard.tsx`**: 메인 화면. 회원 테이블, 위치별 카드, 검색, 페이지네이션, 클라우드 요약 동기화
-- **`components/LoginPage.tsx`**: 사찰 계정 로그인 화면 (Firebase Auth 및 로컬 테스트 모드 지원)
-- **`service/firebaseConfig.ts`**: Firebase SDK 초기화 및 환경변수(`.env`) 설정 감지
-- **`service/firebaseSyncService.ts`**: 사찰 계정 인증, 설정 백업, 요약 통계 동기화, 통합 오류 이력(`error_logs`) 기록 서비스
+- **`components/LoginPage.tsx`**: 사찰 계정 로그인 화면 (Firebase Auth, 개발 전용 로컬 우회 모드)
+- **`service/firebaseConfig.ts`**: Firebase SDK 초기화, 환경변수(`.env`) 검증, 로그인 유지 범위 설정
+- **`service/firebaseSyncService.ts`**: Firebase 실제 세션·사찰 승인 상태 인증, 설정 백업, 요약 통계 동기화, 통합 오류 이력(`error_logs`) 기록 서비스
 - **`hooks/useMembers.ts`**: 회원 데이터 페이징 로드, 필터/정렬/검색, 로딩 상태, 초기화 로직
 - **`components/header.tsx`**: 헤더. 각종 모달 진입점 버튼, 로그인 계정 표시 및 로그아웃
 - **`components/memberTable.tsx`**: 회원 테이블. 로딩 오버레이, 스크롤 초기화

@@ -1,5 +1,11 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
-import { getAuth, type Auth } from 'firebase/auth';
+import {
+  browserLocalPersistence,
+  browserSessionPersistence,
+  getAuth,
+  setPersistence,
+  type Auth,
+} from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 
 export const firebaseConfig = {
@@ -16,7 +22,18 @@ export const firebaseConfig = {
  * 아직 Firebase 프로젝트 생성 전이면 false가 되어 로컬 모드로 동작합니다.
  */
 export const isFirebaseConfigured = Boolean(
-  firebaseConfig.apiKey && firebaseConfig.projectId
+  firebaseConfig.apiKey &&
+  firebaseConfig.authDomain &&
+  firebaseConfig.projectId &&
+  firebaseConfig.appId
+);
+
+/**
+ * 로컬 인증 우회는 개발 서버에서 명시적으로 켠 경우에만 허용한다.
+ * 배포본(Vite production build)에서는 Firebase 설정 누락을 인증 실패로 취급한다.
+ */
+export const isLocalAuthBypassAllowed = Boolean(
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_LOCAL_AUTH_BYPASS === 'true'
 );
 
 let app: FirebaseApp | null = null;
@@ -34,3 +51,9 @@ if (isFirebaseConfigured) {
 }
 
 export { app, auth, db };
+
+/** Firebase 인증 토큰의 유지 범위를 '로그인 상태 유지' 선택과 일치시킨다. */
+export async function configureAuthPersistence(rememberMe: boolean): Promise<void> {
+  if (!auth) return;
+  await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+}

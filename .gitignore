@@ -13,6 +13,8 @@ lerna-debug.log*
 dist-ssr
 .env
 *.local
+service-account*.json
+firebase-debug.log
 
 # Editor directories and files
 .vscode/*

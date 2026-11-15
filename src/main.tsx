@@ -1,12 +1,14 @@
-import React, { StrictMode, Component, ErrorInfo, ReactNode, useState } from 'react';
+import { StrictMode, Component, useEffect, useState } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import Dashboard from './Dashboard';
 import { LoginPage } from './components/LoginPage';
 import {
-  getSavedSession,
   logoutTempleAccount,
+  getCurrentAuthenticatedUid,
   logTempleError,
-  type TempleAccount,
+  observeTempleAuthState,
+  type TempleAuthState,
 } from './service/firebaseSyncService';
 import './index.css';
 
@@ -33,8 +35,7 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
-    const saved = getSavedSession();
-    logTempleError(saved?.uid, 'APP_RUNTIME', error.message, {
+    logTempleError(getCurrentAuthenticatedUid(), 'APP_RUNTIME', error.message, {
       stack: error.stack || '',
       componentStack: errorInfo.componentStack || '',
     });
@@ -62,18 +63,35 @@ class ErrorBoundary extends Component<Props, State> {
 }
 
 const AppRoot = () => {
-  const [account, setAccount] = useState<TempleAccount | null>(() => getSavedSession());
+  const [authState, setAuthState] = useState<TempleAuthState>({ status: 'loading' });
+
+  useEffect(() => observeTempleAuthState(setAuthState), []);
 
   const handleLogout = async () => {
     await logoutTempleAccount();
-    setAccount(null);
+    setAuthState({ status: 'signed-out' });
   };
 
-  if (!account) {
-    return <LoginPage onLoginSuccess={(acc) => setAccount(acc)} />;
+  if (authState.status === 'loading') {
+    return <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">인증 상태를 확인하는 중입니다…</div>;
   }
 
-  return <Dashboard account={account} onLogout={handleLogout} />;
+  if (authState.status === 'configuration-error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="w-full max-w-md rounded-xl border border-red-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-lg font-bold text-slate-900">Firebase 설정이 필요합니다</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">{authState.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState.status === 'signed-out') {
+    return <LoginPage errorMessage={authState.message} onLoginSuccess={(account) => setAuthState({ status: 'authenticated', account })} />;
+  }
+
+  return <Dashboard account={authState.account} onLogout={handleLogout} />;
 };
 
 createRoot(document.getElementById('root')!).render(

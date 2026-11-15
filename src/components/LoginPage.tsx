@@ -6,15 +6,16 @@ import { loginTempleAccount, type TempleAccount } from '../service/firebaseSyncS
 
 interface LoginPageProps {
   onLoginSuccess: (account: TempleAccount) => void;
+  errorMessage?: string;
 }
 
-export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
+export const LoginPage = ({ onLoginSuccess, errorMessage: initialErrorMessage }: LoginPageProps) => {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState(initialErrorMessage || '');
   const [appVersion, setAppVersion] = useState('1.0.0');
 
   useEffect(() => {
@@ -22,6 +23,10 @@ export const LoginPage = ({ onLoginSuccess }: LoginPageProps) => {
       if (v) setAppVersion(v);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setErrorMessage(initialErrorMessage || '');
+  }, [initialErrorMessage]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
