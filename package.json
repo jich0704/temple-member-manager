@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "dev:electron": "npm run build:mdb-reader && wait-on http://localhost:5173 && electron .",
     "build:mdb-reader": "node scripts/build-mdb-reader.cjs",
     "prebuild": "taskkill /IM \"Temple Member Manager.exe\" /F || echo 'No running process' && rd /s /q release || echo 'No release folder'",
     "build": "vite build",

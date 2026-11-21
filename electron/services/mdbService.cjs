@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = {
 
 const MAX_SYNC_ROWS = 500000;
 const MDB_SYNC_PAGE_SIZE = 2000;
+const MDB_READER_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const SYNC_DEBOUNCE_MS = 2500;
 
 function toPlainConfig(config = {}, includePassword = false) {
@@ -128,8 +129,19 @@ async function streamMdbRows(config, { since, afterReceiveMemberId = 0, pageSize
   handlers.onChild?.(child);
   let stderr = '';
   let childError = null;
+  let timedOut = false;
+  let idleTimer = null;
+  const resetIdleTimeout = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      timedOut = true;
+      if (!child.killed) child.kill();
+    }, MDB_READER_IDLE_TIMEOUT_MS);
+  };
+  resetIdleTimeout();
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.stdout.on('data', resetIdleTimeout);
   child.on('error', (error) => { childError = error; });
   const closeResult = new Promise((resolve) => child.on('close', (code, signal) => resolve({ code, signal })));
   const lineReader = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
@@ -155,6 +167,7 @@ async function streamMdbRows(config, { since, afterReceiveMemberId = 0, pageSize
       }
     }
     const { code, signal } = await closeResult;
+    if (timedOut) throw new Error('MDB Reader가 5분 동안 응답하지 않아 동기화를 중단했습니다. MDB 파일 잠금 또는 연결 상태를 확인해 주세요.');
     if (childError) throw childError;
     if (code !== 0 || signal) throw new Error(stderr.trim() || 'MDB Reader가 비정상 종료되었습니다.');
     if (!complete?.ok) throw new Error(complete?.error || 'MDB Reader가 완료 정보를 반환하지 않았습니다.');
@@ -163,6 +176,7 @@ async function streamMdbRows(config, { since, afterReceiveMemberId = 0, pageSize
     if (!child.killed) child.kill();
     throw error;
   } finally {
+    if (idleTimer) clearTimeout(idleTimer);
     lineReader.close();
     handlers.onChild?.(null);
   }
@@ -652,6 +666,7 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
           let totalFetched = 0;
           let syncedAt = new Date().toISOString();
           let maxReceiveMemberId = 0;
+          let storageChecked = false;
           memberRepository.beginMdbFullSync(syncId);
           try {
             const complete = await streamMdbRows(config, { pageSize: MDB_SYNC_PAGE_SIZE }, {
@@ -663,6 +678,22 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
                 }
                 const rows = normalizeRows(event.rows);
                 totalTarget = Number(event.total || totalTarget || 0);
+                if (!storageChecked && rows.length > 0 && totalTarget > 0 && memberRepository.getStorageInfo) {
+                  const storage = memberRepository.getStorageInfo();
+                  if (storage?.availableBytes) {
+                    const bytesPerRow = Buffer.byteLength(JSON.stringify(rows), 'utf8') / rows.length;
+                    // staging + 기존 DB + WAL 여유분을 포함한 보수적 추정치다.
+                    const requiredBytes = Math.ceil(
+                      (bytesPerRow * totalTarget * 1.35)
+                      + (storage.databaseBytes * 1.2)
+                      + (128 * 1024 * 1024),
+                    );
+                    if (storage.availableBytes < requiredBytes) {
+                      throw new Error(`MDB 동기화에 필요한 디스크 공간이 부족합니다. 약 ${Math.ceil(requiredBytes / 1024 / 1024).toLocaleString()}MB 이상 확보한 뒤 다시 시도해 주세요.`);
+                    }
+                  }
+                  storageChecked = true;
+                }
                 totalFetched += rows.length;
                 maxReceiveMemberId = Math.max(maxReceiveMemberId, getMaxReceiveMemberId(rows));
                 memberRepository.stageMdbRows(syncId, rows);
@@ -790,6 +821,83 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
       const watermark = getStoredMaxReceiveMemberId();
       if (watermark <= 0 && !settingsStore.get('mdbSync.lastFullSyncAt')) {
         return await runFullSync();
+      }
+
+      if (hasMdbReader()) {
+        const streamAndUpsert = async ({ since, afterReceiveMemberId = 0 }) => {
+          let sourceRows = 0;
+          let total = 0;
+          let rowCount = 0;
+          let maxReceiveMemberId = 0;
+          let syncedAt = new Date().toISOString();
+          const complete = await streamMdbRows(config, {
+            since: since ? formatAccessDate(since) : '',
+            afterReceiveMemberId,
+            pageSize: MDB_SYNC_PAGE_SIZE,
+          }, {
+            onChild: (child) => { activeMdbReader = child; },
+            onPage: async (event, child) => {
+              if (isStaleSync()) {
+                if (child && !child.killed) child.kill();
+                throw new Error('MDB 동기화가 취소되었습니다.');
+              }
+              const rows = normalizeRows(event.rows);
+              rowCount = memberRepository.upsertMdbRows(rows, { fullSync: false });
+              sourceRows += rows.length;
+              total = Number(event.total || total || 0);
+              maxReceiveMemberId = Math.max(maxReceiveMemberId, getMaxReceiveMemberId(rows));
+              syncedAt = event.syncedAt || syncedAt;
+            },
+          });
+          activeMdbReader = null;
+          return { rowCount, sourceRows, total, maxReceiveMemberId, syncedAt: complete.syncedAt || syncedAt };
+        };
+
+        try {
+          const newSync = await streamAndUpsert({ afterReceiveMemberId: watermark });
+          if (isStaleSync()) return cancelledResult();
+          // 마지막 페이지까지 성공한 경우에만 신규 워터마크를 전진시킨다.
+          if (newSync.maxReceiveMemberId > 0) {
+            settingsStore.set('mdbSync.maxReceiveMemberId', Math.max(watermark, newSync.maxReceiveMemberId));
+          }
+
+          let correctionSync = null;
+          if (shouldRunUpdateScan(config)) {
+            const since = getDateWithGrace(getUpdateScanCursor());
+            if (since) correctionSync = await streamAndUpsert({ since });
+          }
+          if (isStaleSync()) return cancelledResult();
+
+          const elapsedMs = Date.now() - startedAt;
+          const syncedAt = correctionSync?.syncedAt || newSync.syncedAt || new Date().toISOString();
+          if (correctionSync) settingsStore.set('mdbSync.lastUpdateScanAt', syncedAt);
+          const rowCount = correctionSync?.rowCount ?? newSync.rowCount;
+          rememberSyncMeta({ syncedAt, rowCount, elapsedMs });
+          const message = correctionSync
+            ? `MDB 신규 ${newSync.sourceRows.toLocaleString()}건 / 보정 ${correctionSync.sourceRows.toLocaleString()}건 반영 완료`
+            : newSync.sourceRows > 0
+              ? `MDB 신규 ${newSync.sourceRows.toLocaleString()}건 반영 완료`
+              : 'MDB 변경 없음';
+          emitStatus({ state: 'idle', message, syncedAt, rowCount, elapsedMs, error: '' });
+          return {
+            ok: true,
+            rowCount,
+            sourceRows: newSync.sourceRows + (correctionSync?.sourceRows || 0),
+            newRows: newSync.sourceRows,
+            correctionRows: correctionSync?.sourceRows || 0,
+            correctionTotal: correctionSync?.total || 0,
+            total: newSync.total + (correctionSync?.total || 0),
+            incremental: true,
+            updateScanRan: Boolean(correctionSync),
+            elapsedMs,
+            syncedAt,
+            maxReceiveMemberId: Math.max(watermark, newSync.maxReceiveMemberId),
+          };
+        } catch (error) {
+          activeMdbReader = null;
+          if (isStaleSync()) return cancelledResult();
+          throw error;
+        }
       }
 
       const newResult = await readMdbRows(config, { afterReceiveMemberId: watermark });

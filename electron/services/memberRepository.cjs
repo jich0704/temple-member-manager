@@ -104,6 +104,7 @@ function createMemberRepository(userDataPath) {
     CREATE INDEX IF NOT EXISTS idx_members_last_payment ON members(last_payment_month);
     CREATE INDEX IF NOT EXISTS idx_members_phone ON members(phone);
     CREATE INDEX IF NOT EXISTS idx_members_updated ON members(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_members_shindo_number ON members(CAST(json_extract(data_json, '$.신도번호') AS INTEGER));
     CREATE INDEX IF NOT EXISTS idx_sync_logs_timestamp ON mdb_sync_logs(timestamp);
     CREATE INDEX IF NOT EXISTS idx_mdb_sync_staging_sync_id ON mdb_sync_staging(sync_id);
   `);
@@ -277,6 +278,22 @@ function createMemberRepository(userDataPath) {
       return Number(countRows.get().count || 0);
     },
 
+    getStorageInfo() {
+      try {
+        const fileSize = fs.existsSync(dbPath) ? fs.statSync(dbPath).size : 0;
+        const walPath = `${dbPath}-wal`;
+        const walSize = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+        const stat = fs.statfsSync(userDataPath);
+        return {
+          availableBytes: Number(stat.bavail) * Number(stat.bsize),
+          databaseBytes: fileSize + walSize,
+        };
+      } catch {
+        // 지원하지 않는 파일 시스템에서는 SQLite 쓰기 오류로 최종 보호한다.
+        return null;
+      }
+    },
+
     getLastIndex() {
       return Number(maxIdRow.get().maxId || 0);
     },
@@ -318,9 +335,13 @@ function createMemberRepository(userDataPath) {
       }
 
       const dirSql = sortDir === 'asc' ? 'ASC' : 'DESC';
+      const isDefaultMemberNumberSort = sortKey === '신도번호';
       const extractedExpr = `json_extract(data_json, '$.' || ?)`;
-      const orderBy = `ORDER BY CASE WHEN ${extractedExpr} GLOB '[0-9]*' THEN CAST(${extractedExpr} AS INTEGER) ELSE ${extractedExpr} END ${dirSql}, ${extractedExpr} ${dirSql}, id DESC`;
-      const sqlParams = [...params, sortKey, sortKey, sortKey, sortKey, limit, (page - 1) * limit];
+      const orderBy = isDefaultMemberNumberSort
+        ? `ORDER BY CAST(json_extract(data_json, '$.신도번호') AS INTEGER) ${dirSql}, json_extract(data_json, '$.신도번호') ${dirSql}, id DESC`
+        : `ORDER BY CASE WHEN ${extractedExpr} GLOB '[0-9]*' THEN CAST(${extractedExpr} AS INTEGER) ELSE ${extractedExpr} END ${dirSql}, ${extractedExpr} ${dirSql}, id DESC`;
+      const sortParams = isDefaultMemberNumberSort ? [] : [sortKey, sortKey, sortKey, sortKey];
+      const sqlParams = [...params, ...sortParams, limit, (page - 1) * limit];
       
       const countSql = `SELECT COUNT(*) as count FROM members ${whereClause}`;
       const totalCount = Number(db.prepare(countSql).get(...params).count || 0);
@@ -359,6 +380,19 @@ function createMemberRepository(userDataPath) {
       }
       stats['전체'] = { total: allTotal, active: allActive, expired: allExpired, oneMonth: allOneMonth, twoWeeks: allTwoWeeks };
       return stats;
+    },
+
+    getAutoSmsCandidates({ warningDays = 30 } = {}) {
+      const days = Math.max(1, Number(warningDays) || 30);
+      const rows = db.prepare(`
+        SELECT id, data_json
+        FROM members
+        WHERE deleted = 0
+          AND last_payment_month != ''
+          AND date(last_payment_month || '-01', '+1 month', '-1 day') >= date('now', 'localtime')
+          AND date(last_payment_month || '-01', '+1 month', '-1 day') <= date('now', 'localtime', '+${days} days')
+      `).all();
+      return rows.map((row) => toStoredMember(JSON.parse(row.data_json), row.id));
     },
 
     getMdbSyncLogs(options = {}) {

@@ -77,15 +77,11 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
 
     const messageService = new SolapiMessageService(settings.solapiApiKey, settings.solapiApiSecret);
     let members = [];
-    if (memberRepository && memberRepository.getMembersPage) {
-      const pageData = memberRepository.getMembersPage({
-        page: 1,
-        limit: 500000,
-        location: '전체',
-        statusFilter: '한달전',
-        warningDays: 30,
-        criticalDays: 14,
-      });
+    if (memberRepository && memberRepository.getAutoSmsCandidates) {
+      // 자동 발송은 정렬·OFFSET이 필요 없는 대상 전용 조회를 사용한다.
+      members = memberRepository.getAutoSmsCandidates({ warningDays: 30 }) || [];
+    } else if (memberRepository && memberRepository.getMembersPage) {
+      const pageData = memberRepository.getMembersPage({ page: 1, limit: 500000, location: '전체', statusFilter: '한달전', warningDays: 30, criticalDays: 14 });
       members = pageData?.members || [];
     } else if (memberRepository) {
       members = memberRepository.loadAll();
