@@ -3,6 +3,7 @@ import type { ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import Dashboard from './Dashboard';
 import { LoginPage } from './components/LoginPage';
+import { MasterAdminPage } from './components/MasterAdminPage';
 import {
   logoutTempleAccount,
   getCurrentAuthenticatedUid,
@@ -89,6 +90,10 @@ const AppRoot = () => {
 
   if (authState.status === 'signed-out') {
     return <LoginPage errorMessage={authState.message} onLoginSuccess={(account) => setAuthState({ status: 'authenticated', account })} />;
+  }
+
+  if (authState.account.isMasterAdmin) {
+    return <MasterAdminPage account={authState.account} onLogout={handleLogout} />;
   }
 
   return <Dashboard account={authState.account} onLogout={handleLogout} />;

@@ -5,6 +5,7 @@ import { ConfirmModal } from './components/ui/confirmModal';
 import { SolapiSetupModal } from './components/ui/solapiSetupModal';
 import { SmsSendModal } from './components/ui/smsSendModal';
 import { SmsHistoryModal } from './components/ui/smsHistoryModal';
+import { MasterAdminModal } from './components/ui/masterAdminModal';
 import { useMembers } from './hooks/useMembers';
 import { useSMS } from './hooks/useSms';
 import type { Member, Settings } from './types/member';
@@ -41,10 +42,11 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
   const { sendSMS, checkSolapiBalance, isSending } = useSMS();
   const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; isAlert: boolean; onConfirm: () => void } | null>(null);
   const [solapiBalance, setSolapiBalance] = useState<number | null>(null);
+  const [isMasterAdminModalOpen, setIsMasterAdminModalOpen] = useState(false);
 
   // 로그인 시 클라우드 설정 로드하여 로컬 설정과 병합
   useEffect(() => {
-    if (!account?.uid || account.isLocalMode) return;
+    if (!account?.uid || account.isLocalMode || account.isMasterAdmin) return;
     loadCloudSettings(account.uid).then((cloudData) => {
       if (cloudData?.settings) {
         handleUpdateSettings({ ...settings, ...cloudData.settings });
@@ -56,14 +58,14 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
   // 설정 변경 시 로컬 + 클라우드 동시 저장
   const handleSaveAndSyncSettings = async (newSettings: Settings) => {
     await handleUpdateSettings(newSettings);
-    if (account?.uid && !account.isLocalMode) {
+    if (account?.uid && !account.isLocalMode && !account.isMasterAdmin) {
       await saveCloudSettings(account.uid, { settings: newSettings });
     }
   };
 
   // 위치별 요약 통계, 솔라피 잔액 및 현재 앱 버전 클라우드 동기화
   useEffect(() => {
-    if (!account?.uid || account.isLocalMode) return;
+    if (!account?.uid || account.isLocalMode || account.isMasterAdmin) return;
     if (Object.keys(locationStats || {}).length === 0 && solapiBalance === null) return;
     window.api
       ?.getAppVersion?.()
@@ -80,7 +82,7 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
 
   // MDB 동기화 상태 및 오류 이력 클라우드 기록
   useEffect(() => {
-    if (!account?.uid || account.isLocalMode || !window.api?.onMdbSyncStatus) return;
+    if (!account?.uid || account.isLocalMode || account.isMasterAdmin || !window.api?.onMdbSyncStatus) return;
     const unsubscribe = window.api.onMdbSyncStatus((status) => {
       syncTempleSummary(account.uid, {
         mdbStatus: {
@@ -279,6 +281,7 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
             locations={locations}
             account={account}
             onLogout={onLogout}
+            onOpenMasterAdmin={account?.isMasterAdmin ? () => setIsMasterAdminModalOpen(true) : undefined}
           />
         </div>
 
@@ -398,6 +401,10 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
       </div>
 
       <div className="menu-font-scope" style={menuFontStyle}>
+        <MasterAdminModal
+          isOpen={Boolean(account?.isMasterAdmin && isMasterAdminModalOpen)}
+          onClose={() => setIsMasterAdminModalOpen(false)}
+        />
         <ConfirmModal
           isOpen={modalState?.isOpen || false}
           title={modalState?.title || ''}

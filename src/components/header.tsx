@@ -21,6 +21,7 @@ interface Props {
   locations?: string[];
   account?: TempleAccount | null;
   onLogout?: () => void;
+  onOpenMasterAdmin?: () => void;
 }
 
 const colorOptions = [
@@ -41,7 +42,7 @@ const fontSizeOptions = [
   { label: '아주크게', value: 20 },
 ];
 
-const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance, onMdbSynced, onUploadExcel, onExportExcel, locations = [], account, onLogout }: Props) => {
+const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance, onMdbSynced, onUploadExcel, onExportExcel, locations = [], account, onLogout, onOpenMasterAdmin }: Props) => {
   const [isColorModalOpen, setIsColorModalOpen] = useState(false);
   const [isFontModalOpen, setIsFontModalOpen] = useState(false);
   const [isAutoSmsModalOpen, setIsAutoSmsModalOpen] = useState(false);
@@ -206,6 +207,17 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
           <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-full pl-3 pr-2 py-1 shadow-sm">
             <User className="w-3.5 h-3.5 text-slate-500" />
             <span className="text-xs font-semibold text-slate-700">{account.templeName}</span>
+            {account.isMasterAdmin && onOpenMasterAdmin && (
+              <button
+                type="button"
+                onClick={onOpenMasterAdmin}
+                className="flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700 hover:bg-violet-100 transition-colors"
+                title="사찰 계정 관리"
+              >
+                <ShieldCheck className="h-3 w-3" />
+                <span>관리자</span>
+              </button>
+            )}
             {onLogout && (
               <button
                 type="button"

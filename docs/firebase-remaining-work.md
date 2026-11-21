@@ -12,6 +12,9 @@
   명시한 경우에만 허용됩니다.
 - 사찰 계정의 생성·활성화·비활성화·비밀번호 변경은
   `scripts/manage-temple-account.mjs` 관리자 도구로 처리합니다.
+- 마스터 관리자는 Firebase Custom Claim `masterAdmin: true`로 식별하며, 전용 GUI에서
+  Callable Cloud Function을 통해 사찰 계정을 만들 수 있습니다. 일반 사찰 계정은 이 함수를 호출할 수 없습니다.
+- `functions/index.js`의 `createTempleAccount`는 Firebase Auth 사용자와 `temples/{uid}` 승인 프로필을 함께 만들고, Firestore 저장 실패 시 Auth 계정을 되돌립니다.
 - [firestore.rules](../firestore.rules)은 사찰별 데이터 분리와 활성 계정 검증을 담당합니다.
 
 ## 시작 전 준비물
@@ -92,7 +95,28 @@ $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\secure\service-account.json"
 
 이 키는 Firebase Auth 사용자와 Firestore 승인 프로필을 관리하는 권한이 필요합니다.
 
-## 5단계 — 사찰 계정 생성 및 승인
+## 5단계 — Cloud Function과 마스터 관리자 준비
+
+마스터 관리자 GUI를 사용하려면 Functions 의존성을 설치하고 배포합니다.
+
+```bash
+cd functions
+npm install
+cd ..
+npm run firebase:deploy-admin
+```
+
+서비스 계정이 설정된 안전한 관리자 PC에서 마스터 계정을 한 번 생성합니다.
+
+```bash
+npm run firebase:manage-master -- \
+  --login-id master \
+  --password "10자이상의안전한초기비밀번호"
+```
+
+이 명령은 해당 Firebase Auth 사용자에게 `masterAdmin: true` Custom Claim을 부여합니다. 권한 변경 뒤에는 마스터 계정으로 새로 로그인해야 최신 ID 토큰이 발급됩니다.
+
+## 6단계 — 사찰 계정 생성 및 승인
 
 아래 명령은 Firebase Auth 사용자와 `temples/{uid}` 문서를 함께 생성합니다.
 
@@ -127,7 +151,9 @@ npm run firebase:manage-temple -- \
   --reset-password
 ```
 
-## 6단계 — 개발 환경 로그인 확인
+마스터 계정으로 로그인하면 사찰 계정 관리 화면에서 같은 작업을 GUI로 수행할 수도 있습니다. 일반 사찰 계정에는 이 화면이 보이지 않습니다.
+
+## 7단계 — 개발 환경 로그인 확인
 
 ```bash
 npm run dev
@@ -139,8 +165,10 @@ npm run dev
 - 로그아웃 후 로그인 화면으로 돌아간다.
 - “로그인 상태 유지”를 해제한 경우 앱을 완전히 종료한 뒤 다시 실행했을 때 자동 로그인되지 않는다.
 - `isActive: false`로 비활성화한 계정은 로그인되지 않는다.
+- 마스터 계정은 사찰 계정 관리 화면으로 진입하며, 새 사찰 계정을 생성할 수 있다.
+- 일반 사찰 계정의 Callable Function 생성 요청은 거부된다.
 
-## 7단계 — Windows 운영 설치본 확인
+## 8단계 — Windows 운영 설치본 확인
 
 개발 서버가 아닌 실제 설치본을 반드시 확인합니다.
 
@@ -168,6 +196,8 @@ npm run dist
 | 로그인 직후 다시 로그아웃 | Firestore 규칙을 실제로 배포했는지, 문서 UID가 Firebase Auth UID와 같은지 확인 |
 | 설정/통계 동기화 실패 | Firestore Rules의 최신 배포 여부와 브라우저 개발자 도구 콘솔 오류 확인 |
 | 관리자 도구 권한 오류 | `GOOGLE_APPLICATION_CREDENTIALS` 경로, 서비스 계정 프로젝트, Auth/Firestore 관리 권한 확인 |
+| 마스터 관리자 권한 없음 | `firebase:manage-master` 실행 뒤 로그아웃·재로그인했는지, Custom Claim이 해당 UID에 설정됐는지 확인 |
+| 사찰 계정 생성 실패 | `functions` 의존성 설치 및 `npm run firebase:deploy-admin` 배포 성공 여부 확인 |
 
 ## 운영 시 참고할 기존 문서
 

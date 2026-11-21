@@ -280,7 +280,7 @@ src/
 
 1. [Firebase 콘솔](https://console.firebase.google.com/)에서 프로젝트를 만들고,
    **Authentication > Sign-in method**에서 **이메일/비밀번호**를 사용 설정합니다.
-   앱 안에서는 회원가입을 제공하지 않습니다.
+   일반 사찰은 앱에서 회원가입을 할 수 없습니다. `masterAdmin` 권한의 마스터 계정만 전용 관리 화면에서 사찰 계정을 생성합니다.
 2. **Firestore Database**를 `asia-northeast3`(서울) 등 운영 지역으로 생성합니다.
 3. **프로젝트 설정 > 내 앱 > 웹 앱**에서 설정 값을 확인하고, 프로젝트 루트의
    `.env.example`을 `.env`로 복사해 모든 `VITE_FIREBASE_*` 값을 입력합니다.
@@ -341,6 +341,8 @@ npm run firebase:manage-temple -- --login-id jogyesa --password "새-안전-비�
 상세 절차는 [Firebase 운영 배포 문서](docs/firebase-deployment.md)를 참고합니다.
 처음 Firebase를 실제 연결하거나 운영 설치본을 검증할 때는
 [Firebase 인증 연동: 남은 작업 실행 가이드](docs/firebase-remaining-work.md)를 순서대로 진행하세요.
+
+마스터 관리자 계정 생성과 Cloud Function 배포 절차도 위 Firebase 운영 배포 문서에 포함되어 있습니다.
 
 ## 4. Firestore 저장 구조와 권한
 

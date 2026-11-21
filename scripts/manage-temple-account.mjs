@@ -23,6 +23,7 @@ function printUsage() {
   npm run firebase:manage-temple -- --login-id jogyesa --temple-name "조계사" --password "초기비밀번호"
   npm run firebase:manage-temple -- --login-id jogyesa --active false
   npm run firebase:manage-temple -- --login-id jogyesa --password "새비밀번호" --reset-password
+  npm run firebase:manage-temple -- --master --login-id master --password "안전한초기비밀번호"
 
 필수 환경변수:
   GOOGLE_APPLICATION_CREDENTIALS=/절대경로/service-account.json
@@ -35,6 +36,7 @@ const templeName = getOption('--temple-name')?.trim();
 const password = getOption('--password');
 const activeOption = getOption('--active');
 const resetPassword = hasOption('--reset-password');
+const masterAdmin = hasOption('--master');
 
 if (!loginId || !/^[A-Za-z0-9._-]{3,64}$/.test(loginId)) {
   printUsage();
@@ -77,11 +79,20 @@ try {
   user = await auth.createUser({
     email,
     password,
-    displayName: templeName || loginId,
+    displayName: templeName || (masterAdmin ? '마스터 관리자' : loginId),
     disabled: !active,
     emailVerified: true,
   });
   createdUser = true;
+}
+
+if (masterAdmin) {
+  await auth.setCustomUserClaims(user.uid, {
+    ...(user.customClaims || {}),
+    masterAdmin: true,
+  });
+  console.log(`마스터 관리자 계정 처리 완료: ${email} (uid: ${user.uid}, 활성: ${active})`);
+  process.exit(0);
 }
 
 const templeProfile = {

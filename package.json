@@ -17,7 +17,9 @@
     "release:minor": "npm version minor && git push --follow-tags",
     "release:major": "npm version major && git push --follow-tags",
     "firebase:deploy-rules": "npx firebase-tools deploy --only firestore:rules",
-    "firebase:manage-temple": "node scripts/manage-temple-account.mjs"
+    "firebase:deploy-admin": "npx firebase-tools deploy --only functions",
+    "firebase:manage-temple": "node scripts/manage-temple-account.mjs",
+    "firebase:manage-master": "node scripts/manage-temple-account.mjs --master"
   },
   "build": {
     "appId": "com.example.templemanager",

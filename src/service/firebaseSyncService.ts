@@ -13,10 +13,12 @@ import {
   addDoc,
   onSnapshot,
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import {
   auth,
   configureAuthPersistence,
   db,
+  functions,
   isFirebaseConfigured,
   isLocalAuthBypassAllowed,
 } from './firebaseConfig';
@@ -28,6 +30,7 @@ export interface TempleAccount {
   templeName: string;
   isActive: boolean;
   isLocalMode?: boolean;
+  isMasterAdmin?: boolean;
 }
 
 export type ErrorLogCategory = 'MDB_SYNC' | 'SMS_SEND' | 'AUTO_SMS' | 'APP_RUNTIME';
@@ -116,6 +119,17 @@ function configurationErrorMessage(): string {
 async function getApprovedTempleAccount(user: User): Promise<TempleAccount | null> {
   if (!db) return null;
 
+  const token = await user.getIdTokenResult();
+  if (token.claims.masterAdmin === true) {
+    return {
+      uid: user.uid,
+      loginId: user.email?.split('@')[0] || user.uid,
+      templeName: user.displayName || '마스터 관리자',
+      isActive: true,
+      isMasterAdmin: true,
+    };
+  }
+
   const templeRef = doc(db, 'temples', user.uid);
   const templeSnap = await getDoc(templeRef);
   if (!templeSnap.exists()) return null;
@@ -172,6 +186,12 @@ export function observeTempleAuthState(
         if (!disposed) {
           onChange({ status: 'signed-out', message: '승인되지 않았거나 비활성화된 사찰 계정입니다.' });
         }
+        return;
+      }
+
+      if (account.isMasterAdmin) {
+        stopProfileObserver();
+        onChange({ status: 'authenticated', account });
         return;
       }
 
@@ -268,6 +288,34 @@ export async function logoutTempleAccount(): Promise<void> {
     } catch {
       // ignore
     }
+  }
+}
+
+export interface CreateTempleAccountInput {
+  loginId: string;
+  templeName: string;
+  password: string;
+}
+
+export interface CreatedTempleAccount {
+  uid: string;
+  loginId: string;
+  templeName: string;
+  email: string;
+}
+
+/** 마스터 관리자만 호출 가능한 Cloud Function으로 사찰 인증 계정과 승인 문서를 함께 만든다. */
+export async function createTempleAccount(input: CreateTempleAccountInput): Promise<CreatedTempleAccount> {
+  if (!functions) throw new Error('Firebase 관리자 기능이 설정되지 않았습니다.');
+  const callable = httpsCallable<CreateTempleAccountInput, CreatedTempleAccount>(functions, 'createTempleAccount');
+  try {
+    const result = await callable(input);
+    return result.data;
+  } catch (error: any) {
+    const code = String(error?.code || '');
+    if (code.endsWith('permission-denied')) throw new Error('마스터 관리자 권한이 필요합니다.');
+    if (code.endsWith('already-exists')) throw new Error('이미 사용 중인 사찰 아이디입니다.');
+    throw new Error(error?.message || '사찰 계정을 만들지 못했습니다.');
   }
 }
 

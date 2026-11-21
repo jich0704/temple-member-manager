@@ -7,6 +7,7 @@ import {
   type Auth,
 } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getFunctions, type Functions } from 'firebase/functions';
 
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
@@ -39,18 +40,20 @@ export const isLocalAuthBypassAllowed = Boolean(
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
+let functions: Functions | null = null;
 
 if (isFirebaseConfigured) {
   try {
     app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    functions = getFunctions(app, 'asia-northeast3');
   } catch (error) {
     console.error('[Firebase] 초기화 실패:', error);
   }
 }
 
-export { app, auth, db };
+export { app, auth, db, functions };
 
 /** Firebase 인증 토큰의 유지 범위를 '로그인 상태 유지' 선택과 일치시킨다. */
 export async function configureAuthPersistence(rememberMe: boolean): Promise<void> {
