@@ -27,12 +27,21 @@ export interface SendSMSPayload {
 export interface SendSMSResponse {
   success: boolean;
   error?: string;
+  partial?: boolean;
+  successCount?: number;
+  failedCount?: number;
+  failedTargets?: SmsFailedTarget[];
   result?: any;
 }
 
 export interface SmsHistoryTarget {
   name: string;
   phone: string;
+}
+
+export interface SmsFailedTarget {
+  phone: string;
+  error: string;
 }
 
 export interface SmsHistoryItem {
@@ -43,6 +52,10 @@ export interface SmsHistoryItem {
   imageBase64?: string;
   targets: SmsHistoryTarget[];
   success: boolean;
+  deliveryStatus?: 'success' | 'partial' | 'failed';
+  successCount?: number;
+  failedCount?: number;
+  failedTargets?: SmsFailedTarget[];
   errorMsg?: string;
   result?: any;
 }

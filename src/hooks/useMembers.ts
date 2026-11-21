@@ -25,6 +25,29 @@ const formatDate = (dateValue: string) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const normalizePhone = (value: unknown) => String(value || '').replace(/[^0-9]/g, '');
+const getMemberPhone = (member: Member) =>
+  normalizePhone(member.phone || member['휴대폰'] || member['전화번호'] || member['연락처']);
+
+const getLatestSmsDates = (historyData: SmsHistoryItem[]) => {
+  const latestDates = new Map<string, string>();
+  historyData?.forEach((item) => {
+    const deliveryStatus = item.deliveryStatus || (item.success ? 'success' : 'failed');
+    if (deliveryStatus === 'failed') return;
+
+    const failedPhones = new Set(
+      (item.failedTargets || []).map((target) => normalizePhone(target.phone)),
+    );
+    item.targets.forEach((target) => {
+      const phone = normalizePhone(target.phone);
+      if (!phone || failedPhones.has(phone)) return;
+      const cur = latestDates.get(phone);
+      if (!cur || new Date(item.date) > new Date(cur)) latestDates.set(phone, item.date);
+    });
+  });
+  return latestDates;
+};
+
 export const useMembers = (
   activeLocation: string = ALL_LOCATION,
   activeFilter: string = '전체',
@@ -77,12 +100,15 @@ export const useMembers = (
       if (!pageData || requestId !== memberRequestIdRef.current) return;
 
       const latestDates = smsLatestDatesRef.current;
-      const mappedMembers = pageData.members.map((m: Member) => ({
-        ...m,
-        [RECENT_SMS_DATE]: m.phone && latestDates.has(m.phone)
-          ? formatDate(latestDates.get(m.phone)!)
-          : '-',
-      }));
+      const mappedMembers = pageData.members.map((m: Member) => {
+        const phone = getMemberPhone(m);
+        return {
+          ...m,
+          [RECENT_SMS_DATE]: phone && latestDates.has(phone)
+            ? formatDate(latestDates.get(phone)!)
+            : '-',
+        };
+      });
       setMembers(mappedMembers);
       setTotalCount(pageData.totalCount);
       setTotalPages(pageData.totalPages);
@@ -140,16 +166,7 @@ export const useMembers = (
       if (window.api.getSmsHistory) {
         try {
           const historyData: SmsHistoryItem[] = await window.api.getSmsHistory();
-          const latestDates = new Map<string, string>();
-          historyData?.forEach(item => {
-            if (!item.success) return;
-            item.targets.forEach(target => {
-              const cur = latestDates.get(target.phone);
-              if (!cur || new Date(item.date) > new Date(cur))
-                latestDates.set(target.phone, item.date);
-            });
-          });
-          smsLatestDatesRef.current = latestDates;
+          smsLatestDatesRef.current = getLatestSmsDates(historyData);
         } catch { /* ignore */ }
       }
 
@@ -185,16 +202,7 @@ export const useMembers = (
       try {
         const historyData: SmsHistoryItem[] = await window.api.getSmsHistory();
         if (requestId !== statsRequestIdRef.current) return;
-        const latestDates = new Map<string, string>();
-        historyData?.forEach(item => {
-          if (!item.success) return;
-          item.targets.forEach(target => {
-            const cur = latestDates.get(target.phone);
-            if (!cur || new Date(item.date) > new Date(cur))
-              latestDates.set(target.phone, item.date);
-          });
-        });
-        smsLatestDatesRef.current = latestDates;
+        smsLatestDatesRef.current = getLatestSmsDates(historyData);
       } catch { /* ignore */ }
     }
   }, []);

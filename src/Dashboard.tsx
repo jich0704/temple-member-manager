@@ -165,10 +165,14 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
     if (result.success) {
       setIsSendModalOpen(false);
       await refreshAll();
+      const failedCount = result.failedCount || 0;
+      const successCount = result.successCount ?? smsTargets.length;
       setModalState({
         isOpen: true,
-        title: '발송 완료',
-        message: '성공적으로 문자를 발송했습니다.',
+        title: result.partial ? '일부 발송 실패' : '발송 완료',
+        message: result.partial
+          ? `${smsTargets.length}명 중 ${successCount}명은 접수되었고 ${failedCount}명은 실패했습니다. 발송 이력에서 실패 사유를 확인해 주세요.`
+          : `${successCount}명에게 문자를 성공적으로 접수했습니다.`,
         isAlert: true,
         onConfirm: () => setModalState(null),
       });

@@ -62,7 +62,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "concurrently": "^9.2.1",
-    "coolsms-node-sdk": "^2.1.0",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",
     "firebase": "^13.0.0",
@@ -72,6 +71,7 @@
     "react-dom": "^18.2.0",
     "react-virtualized-auto-sizer": "^1.0.7",
     "react-window": "^1.8.9",
+    "solapi": "6.0.1",
     "tailwind-merge": "^3.4.1",
     "wait-on": "^9.0.4",
     "xlsx": "^0.18.5"

@@ -192,8 +192,8 @@ app.whenReady().then(() => {
   
   // 각종 서비스 초기화 및 IPC 핸들러 등록
   setupMemberService(ipcMain, memberRepository);
-  const { saveSmsHistory } = setupSmsService(ipcMain, settingsStore, app);
-  setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory, memberRepository);
+  const { saveSmsHistory, getSendOutcome, getFailedTargetsFromError } = setupSmsService(ipcMain, settingsStore, app);
+  setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory, memberRepository, getSendOutcome, getFailedTargetsFromError);
   setupMdbService(ipcMain, memberRepository, settingsStore, app);
   setupAutoUpdater();
 

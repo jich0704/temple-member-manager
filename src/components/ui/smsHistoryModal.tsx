@@ -69,9 +69,12 @@ export const SmsHistoryModal = ({ isOpen, onClose }: SmsHistoryModalProps) => {
     return cost > 0 ? `${cost.toLocaleString()}원` : null;
   };
 
+  const getDeliveryStatus = (item: SmsHistoryItem) =>
+    item.deliveryStatus || (item.success ? 'success' : 'failed');
+
   const filteredHistory = useMemo(() => {
-    if (activeTab === 'success') return history.filter((item) => item.success);
-    if (activeTab === 'fail') return history.filter((item) => !item.success);
+    if (activeTab === 'success') return history.filter((item) => getDeliveryStatus(item) === 'success');
+    if (activeTab === 'fail') return history.filter((item) => getDeliveryStatus(item) !== 'success');
     return history;
   }, [history, activeTab]);
 
@@ -155,6 +158,7 @@ export const SmsHistoryModal = ({ isOpen, onClose }: SmsHistoryModalProps) => {
           ) : (
             paginatedHistory.map((item) => {
               const isExpanded = expandedIds.has(item.id);
+              const deliveryStatus = getDeliveryStatus(item);
               const singleLinePreview = (item.template || '').replace(/\s+/g, ' ').trim();
               return (
                 <div key={item.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow transition-shadow">
@@ -164,9 +168,13 @@ export const SmsHistoryModal = ({ isOpen, onClose }: SmsHistoryModalProps) => {
                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
                   >
                     <div className="flex items-center gap-2 shrink-0">
-                      {item.success ? (
+                      {deliveryStatus === 'success' ? (
                         <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200">
                           <CheckCircle2 className="w-3 h-3 mr-1" />성공
+                        </Badge>
+                      ) : deliveryStatus === 'partial' ? (
+                        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">
+                          <XCircle className="w-3 h-3 mr-1" />일부 실패
                         </Badge>
                       ) : (
                         <Badge className="bg-red-100 text-red-700 hover:bg-red-100 border-red-200">
@@ -178,7 +186,7 @@ export const SmsHistoryModal = ({ isOpen, onClose }: SmsHistoryModalProps) => {
                           <ImageIcon className="w-3 h-3 mr-1" />MMS
                         </Badge>
                       )}
-                      {item.success && getCostString(item.result) && (
+                      {deliveryStatus !== 'failed' && getCostString(item.result) && (
                         <Badge variant="outline" className="text-slate-600 border-slate-200 bg-white">
                           차감: {getCostString(item.result)}
                         </Badge>
@@ -236,6 +244,21 @@ export const SmsHistoryModal = ({ isOpen, onClose }: SmsHistoryModalProps) => {
                             <span className="font-bold block mb-0.5">오류 원인</span>
                             {item.errorMsg}
                           </div>
+                        </div>
+                      )}
+
+                      {deliveryStatus === 'partial' && (
+                        <div className="text-sm text-amber-700 bg-amber-50 p-3 rounded-lg border border-amber-100">
+                          총 {item.targets?.length || 0}명 중 {item.successCount || 0}명 접수, {item.failedCount || 0}명 실패
+                        </div>
+                      )}
+
+                      {item.failedTargets && item.failedTargets.length > 0 && (
+                        <div className="text-xs text-red-700 bg-red-50 p-3 rounded-lg border border-red-100 space-y-1">
+                          <span className="font-bold block">실패 수신자</span>
+                          {item.failedTargets.map((target, index) => (
+                            <div key={`${target.phone}-${index}`}>{target.phone || '번호없음'}: {target.error}</div>
+                          ))}
                         </div>
                       )}
 

@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const coolsms = require('coolsms-node-sdk').default;
+const { SolapiMessageService } = require('solapi');
 
-module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory, memberRepository) {
+module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory, memberRepository, getSendOutcome, getFailedTargetsFromError) {
   ipcMain.handle('get-auto-sms-config', () => {
     return store.get('autoSmsConfig') || null;
   });
@@ -42,8 +42,10 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
     // 설정된 시간 이후인지 확인
     if (currentHour > targetHour || (currentHour === targetHour && currentMin >= targetMin)) {
       console.log(`[AutoSms] 설정 시간(${config.time})이 되었으므로 문자를 발송합니다.`);
-      await executeAutoSms(config);
-      store.set('lastAutoSmsRunDate', todayStr);
+      const result = await executeAutoSms(config);
+      if (result.ok) {
+        store.set('lastAutoSmsRunDate', todayStr);
+      }
     }
   }
 
@@ -51,10 +53,10 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
     const settings = settingsStore.store;
     if (!settings.solapiApiKey || !settings.solapiApiSecret || !settings.solapiSenderNumber) {
       console.error('[AutoSms] 솔라피 설정이 없어 자동발송 취소');
-      return;
+      return { ok: false };
     }
 
-    const messageService = new coolsms(settings.solapiApiKey, settings.solapiApiSecret);
+    const messageService = new SolapiMessageService(settings.solapiApiKey, settings.solapiApiSecret);
     let members = [];
     if (memberRepository && memberRepository.getMembersPage) {
       const pageData = memberRepository.getMembersPage({
@@ -73,7 +75,7 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
       members = Array.isArray(raw) ? raw : Object.values(raw);
     }
     
-    if (members.length === 0) return;
+    if (members.length === 0) return { ok: true };
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -84,6 +86,7 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
       try { autoSmsLog = JSON.parse(fs.readFileSync(logPath, 'utf8')); } catch (e) {}
     }
 
+    let allRulesSucceeded = true;
     for (const rule of config.rules) {
       if (!rule.enabled || !rule.template) continue;
 
@@ -143,10 +146,19 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
       });
 
       try {
-        const result = await messageService.sendMany(messages);
-        
-        for (const { duplicateKey } of validTargets) {
-          autoSmsLog[duplicateKey] = new Date().toISOString();
+        const result = await messageService.send(messages, { showMessageList: true });
+        const outcome = typeof getSendOutcome === 'function'
+          ? getSendOutcome(result, validTargets.length)
+          : { deliveryStatus: 'success', successCount: validTargets.length, failedCount: 0, failedTargets: [] };
+        const failedPhones = new Set(outcome.failedTargets.map((target) => String(target.phone || '').replace(/[^0-9]/g, '')));
+
+        // 실패 목록을 받은 경우에만 성공한 대상만 완료 처리한다. 실패한 번호는 다음 실행에서 재시도한다.
+        if (outcome.failedCount === 0 || outcome.failedTargets.length > 0) {
+          for (const { duplicateKey, rawPhone } of validTargets) {
+            if (!failedPhones.has(rawPhone)) {
+              autoSmsLog[duplicateKey] = new Date().toISOString();
+            }
+          }
         }
         fs.writeFileSync(logPath, JSON.stringify(autoSmsLog, null, 2), 'utf8');
         
@@ -164,13 +176,40 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
             name: t.member.name || t.member['동참자'] || t.member['대주'] || t.member['이름'] || '이름없음',
             phone: t.member.phone || t.member['휴대폰'] || t.member['전화번호'] || t.member['연락처'] || ''
           })),
-          success: true,
+          success: outcome.deliveryStatus === 'success',
+          deliveryStatus: outcome.deliveryStatus,
+          successCount: outcome.successCount,
+          failedCount: outcome.failedCount,
+          failedTargets: outcome.failedTargets,
+          errorMsg: outcome.failedCount > 0 ? `${outcome.failedCount}명 접수 실패` : undefined,
           result
         });
+        if (outcome.deliveryStatus !== 'success') allRulesSucceeded = false;
       } catch (e) {
         console.error('Auto SMS Send Error:', e);
+        const failedTargets = typeof getFailedTargetsFromError === 'function'
+          ? getFailedTargetsFromError(e)
+          : [];
+        saveSmsHistory({
+          id: Date.now().toString() + '_' + rule.type,
+          date: new Date().toISOString(),
+          template: `[자동 발송 실패]\n${rule.template}`,
+          hasImage: false,
+          targets: validTargets.map(t => ({
+            name: t.member.name || t.member['동참자'] || t.member['대주'] || t.member['이름'] || '이름없음',
+            phone: t.member.phone || t.member['휴대폰'] || t.member['전화번호'] || t.member['연락처'] || ''
+          })),
+          success: false,
+          deliveryStatus: 'failed',
+          successCount: 0,
+          failedCount: failedTargets.length || validTargets.length,
+          failedTargets,
+          errorMsg: e.message,
+        });
+        allRulesSucceeded = false;
       }
     }
+    return { ok: allRulesSucceeded };
   }
 
   // start the scheduler immediately

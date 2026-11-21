@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const coolsms = require('coolsms-node-sdk').default;
+const { SolapiMessageService } = require('solapi');
 
 const MAX_MMS_IMAGE_BYTES = 200 * 1024;
 
@@ -23,6 +23,50 @@ function createTemporaryMmsImage(imageBase64) {
   const filePath = path.join(tempDir, 'image.jpg');
   fs.writeFileSync(filePath, imageBuffer);
   return { tempDir, filePath };
+}
+
+function asNonNegativeInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : null;
+}
+
+function getSendOutcome(result, attemptedCount) {
+  const groupInfo = result?.groupInfo || result || {};
+  const count = groupInfo.count || result?.count || {};
+  const failedMessageList = Array.isArray(result?.failedMessageList)
+    ? result.failedMessageList
+    : Array.isArray(groupInfo.failedMessageList)
+      ? groupInfo.failedMessageList
+      : [];
+  const reportedFailedCount = asNonNegativeInteger(count.registeredFailed);
+  const reportedSuccessCount = asNonNegativeInteger(count.registeredSuccess);
+  const failedCount = Math.min(
+    attemptedCount,
+    Math.max(reportedFailedCount ?? 0, failedMessageList.length),
+  );
+  const successCount = Math.min(
+    attemptedCount - failedCount,
+    reportedSuccessCount ?? attemptedCount - failedCount,
+  );
+  const failedTargets = failedMessageList.map((item) => ({
+    phone: String(item?.to || ''),
+    error: String(item?.statusMessage || item?.errorMessage || '접수에 실패했습니다.'),
+  }));
+  const deliveryStatus = failedCount === 0
+    ? 'success'
+    : successCount > 0
+      ? 'partial'
+      : 'failed';
+
+  return { deliveryStatus, successCount, failedCount, failedTargets };
+}
+
+function getFailedTargetsFromError(error) {
+  const failedMessageList = Array.isArray(error?.failedMessageList) ? error.failedMessageList : [];
+  return failedMessageList.map((item) => ({
+    phone: String(item?.to || ''),
+    error: String(item?.statusMessage || item?.errorMessage || error?.message || '접수에 실패했습니다.'),
+  }));
 }
 
 module.exports = function setupSmsService(ipcMain, settingsStore, app) {
@@ -63,7 +107,7 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
 
   ipcMain.handle('get-solapi-balance', async (_, { apiKey, apiSecret }) => {
     try {
-      const messageService = new coolsms(apiKey, apiSecret);
+      const messageService = new SolapiMessageService(apiKey, apiSecret);
       const result = await messageService.getBalance();
       return { success: true, balance: result };
     } catch (error) {
@@ -80,7 +124,7 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
         throw new Error('솔라피 계정 정보나 발신번호가 설정되지 않았습니다.');
       }
       
-      const messageService = new coolsms(settings.solapiApiKey, settings.solapiApiSecret);
+      const messageService = new SolapiMessageService(settings.solapiApiKey, settings.solapiApiSecret);
       const { targets, message, imageBase64 } = payload;
       if (!Array.isArray(targets) || targets.length === 0) {
         throw new Error('발송 대상이 없습니다.');
@@ -123,7 +167,11 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
         return msgObj;
       });
 
-      const sendResult = await messageService.sendMany(messages);
+      const sendResult = await messageService.send(messages, { showMessageList: true });
+      const outcome = getSendOutcome(sendResult, targets.length);
+      const errorMsg = outcome.failedCount > 0
+        ? `${outcome.failedCount}명 접수 실패${outcome.failedTargets.length > 0 ? `: ${outcome.failedTargets.map((item) => item.error).join(' / ')}` : ''}`
+        : undefined;
       
       saveSmsHistory({
         id: Date.now().toString(),
@@ -135,15 +183,30 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
           name: t.name || t['동참자'] || t['대주'] || t['이름'] || '이름없음',
           phone: t.phone || t['휴대폰'] || t['전화번호'] || t['연락처'] || ''
         })),
-        success: true,
+        success: outcome.deliveryStatus === 'success',
+        deliveryStatus: outcome.deliveryStatus,
+        successCount: outcome.successCount,
+        failedCount: outcome.failedCount,
+        failedTargets: outcome.failedTargets,
+        errorMsg,
         result: sendResult
       });
 
-      return { success: true, result: sendResult };
+      if (outcome.deliveryStatus === 'failed') {
+        return {
+          success: false,
+          error: errorMsg || '모든 수신자 접수에 실패했습니다.',
+          result: sendResult,
+          ...outcome,
+        };
+      }
+
+      return { success: true, result: sendResult, partial: outcome.deliveryStatus === 'partial', ...outcome };
     } catch (error) {
       console.error('문자 발송 실패:', error);
       try {
         const { targets = [], message = '', imageBase64 } = payload || {};
+        const failedTargets = getFailedTargetsFromError(error);
         saveSmsHistory({
           id: Date.now().toString(),
           date: new Date().toISOString(),
@@ -155,6 +218,10 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
             phone: t.phone || t['휴대폰'] || t['전화번호'] || t['연락처'] || ''
           })),
           success: false,
+          deliveryStatus: 'failed',
+          successCount: 0,
+          failedCount: failedTargets.length || targets.length,
+          failedTargets,
           errorMsg: error.message
         });
       } catch {}
@@ -170,6 +237,6 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
     }
   });
 
-  // return saveSmsHistory to be used by autoSmsService
-  return { saveSmsHistory };
+  // 자동 발송도 수동 발송과 같은 솔라피 응답 판정 규칙을 사용한다.
+  return { saveSmsHistory, getSendOutcome, getFailedTargetsFromError };
 };
