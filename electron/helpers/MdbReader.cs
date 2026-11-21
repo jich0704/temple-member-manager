@@ -8,7 +8,9 @@ using System.Web.Script.Serialization;
 
 class MdbReader
 {
-    const int DefaultMaxRows = 50000;
+    const int DefaultPageSize = 2000;
+    const int MaxPageSize = 5000;
+    const int LegacyMaxRows = 500000;
 
     static int Main(string[] args)
     {
@@ -18,11 +20,11 @@ class MdbReader
         {
             var options = ParseArgs(args);
             var command = args.Length > 0 ? args[0].ToLowerInvariant() : "";
-            if (command != "test" && command != "sync")
+            if (command != "test" && command != "sync" && command != "sync-stream")
             {
                 WriteJson(new Dictionary<string, object> {
                     { "ok", false },
-                    { "error", "Usage: MdbReader.exe test|sync --path=... --password=... --keyword=... --since=... --afterReceiveMemberId=..." }
+                    { "error", "Usage: MdbReader.exe test|sync|sync-stream --path=... --password=... --keyword=... --since=... --afterReceiveMemberId=..." }
                 });
                 return 1;
             }
@@ -38,6 +40,7 @@ class MdbReader
             using (var connection = OpenConnection(path, password))
             {
                 if (command == "test") Test(connection);
+                else if (command == "sync-stream") StreamSync(connection, options);
                 else Sync(connection, options);
             }
 
@@ -102,9 +105,9 @@ class MdbReader
         var keyword = GetOption(options, "keyword", "");
         var since = GetOption(options, "since");
         var afterReceiveMemberId = 0;
-        var maxRows = DefaultMaxRows;
+        var maxRows = LegacyMaxRows;
         int.TryParse(GetOption(options, "afterReceiveMemberId", "0"), out afterReceiveMemberId);
-        int.TryParse(GetOption(options, "maxRows", DefaultMaxRows.ToString(CultureInfo.InvariantCulture)), out maxRows);
+        int.TryParse(GetOption(options, "maxRows", LegacyMaxRows.ToString(CultureInfo.InvariantCulture)), out maxRows);
 
         var where = BuildWhereClause(keyword, since, afterReceiveMemberId);
         var countSql = "SELECT COUNT(*) FROM ((([ReceiveMember] rm LEFT JOIN [Receive] r ON rm.ReceiveID = r.ReceiveID) LEFT JOIN [Member] m ON rm.MemberID = m.MemberID) LEFT JOIN [FamilyInfo] fi ON r.FamilyInfoID = fi.FamilyInfoID) WHERE " + where;
@@ -135,6 +138,59 @@ class MdbReader
         });
     }
 
+    // MDB 연결을 한 번만 열고 페이지 단위 NDJSON을 출력한다. Node 프로세스는 각
+    // 페이지를 즉시 SQLite에 적재하므로 대용량 전체 결과를 어느 한쪽 메모리에 쌓지 않는다.
+    static void StreamSync(OleDbConnection connection, Dictionary<string, string> options)
+    {
+        var keyword = GetOption(options, "keyword", "");
+        var since = GetOption(options, "since");
+        var afterReceiveMemberId = 0;
+        var pageSize = DefaultPageSize;
+        int.TryParse(GetOption(options, "afterReceiveMemberId", "0"), out afterReceiveMemberId);
+        int.TryParse(GetOption(options, "pageSize", DefaultPageSize.ToString(CultureInfo.InvariantCulture)), out pageSize);
+        pageSize = Math.Max(100, Math.Min(MaxPageSize, pageSize));
+
+        // 전체 건수는 한 번만 구한다. 이후 페이지에서는 ReceiveMemberID 오름차순
+        // 키셋 커서를 사용하므로 OFFSET 성능 저하와 중복/누락을 피한다.
+        var baseWhere = BuildWhereClause(keyword, since, 0);
+        var countSql = "SELECT COUNT(*) FROM ((([ReceiveMember] rm LEFT JOIN [Receive] r ON rm.ReceiveID = r.ReceiveID) LEFT JOIN [Member] m ON rm.MemberID = m.MemberID) LEFT JOIN [FamilyInfo] fi ON r.FamilyInfoID = fi.FamilyInfoID) WHERE " + baseWhere;
+        var total = ExecuteScalarInt(connection, countSql);
+        var cursor = Math.Max(0, afterReceiveMemberId);
+        var processed = 0;
+
+        while (true)
+        {
+            var where = BuildWhereClause(keyword, since, cursor);
+            var rows = ReadRows(connection, where, pageSize, true);
+            AttachPaymentMonths(connection, rows);
+            processed += rows.Count;
+            if (rows.Count > 0) cursor = rows.Max(row => Convert.ToInt32(row["mdbReceiveMemberId"]));
+            var hasMore = rows.Count == pageSize;
+
+            WriteJsonLine(new Dictionary<string, object> {
+                { "type", "page" },
+                { "ok", true },
+                { "total", total },
+                { "processed", processed },
+                { "rows", rows },
+                { "nextCursor", cursor },
+                { "hasMore", hasMore },
+                { "syncedAt", DateTime.Now.ToString("o") }
+            });
+
+            if (!hasMore) break;
+        }
+
+        WriteJsonLine(new Dictionary<string, object> {
+            { "type", "complete" },
+            { "ok", true },
+            { "total", total },
+            { "processed", processed },
+            { "nextCursor", cursor },
+            { "syncedAt", DateTime.Now.ToString("o") }
+        });
+    }
+
     static string BuildWhereClause(string keyword, string since, int afterReceiveMemberId)
     {
         var where = "1=1";
@@ -155,10 +211,12 @@ class MdbReader
         return where;
     }
 
-    static List<Dictionary<string, object>> ReadRows(OleDbConnection connection, string where)
+    static List<Dictionary<string, object>> ReadRows(OleDbConnection connection, string where, int pageSize = 0, bool ascending = false)
     {
+        var topClause = pageSize > 0 ? "TOP " + pageSize.ToString(CultureInfo.InvariantCulture) + " " : "";
+        var direction = ascending ? "ASC" : "DESC";
         var sql = @"
-SELECT
+SELECT " + topClause + @"
   rm.ReceiveMemberID,
   rm.ReceiveID,
   rm.MemberID,
@@ -208,7 +266,7 @@ FROM ((( [ReceiveMember] rm
   LEFT JOIN [Member] m ON rm.MemberID = m.MemberID)
   LEFT JOIN [FamilyInfo] fi ON r.FamilyInfoID = fi.FamilyInfoID)
 WHERE " + where + @"
-ORDER BY rm.ReceiveMemberID DESC";
+ORDER BY rm.ReceiveMemberID " + direction;
 
         var rows = new List<Dictionary<string, object>>();
         using (var command = new OleDbCommand(sql, connection))
@@ -388,5 +446,12 @@ ORDER BY rm.ReceiveMemberID DESC";
     {
         var serializer = new JavaScriptSerializer { MaxJsonLength = Int32.MaxValue };
         Console.WriteLine(serializer.Serialize(value));
+    }
+
+    static void WriteJsonLine(object value)
+    {
+        var serializer = new JavaScriptSerializer { MaxJsonLength = Int32.MaxValue };
+        Console.WriteLine(serializer.Serialize(value));
+        Console.Out.Flush();
     }
 }

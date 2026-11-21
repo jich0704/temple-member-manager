@@ -1,7 +1,8 @@
 const { BrowserWindow, dialog } = require('electron');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
 const DEFAULT_CONFIG = {
   filePath: '',
@@ -13,6 +14,7 @@ const DEFAULT_CONFIG = {
 };
 
 const MAX_SYNC_ROWS = 500000;
+const MDB_SYNC_PAGE_SIZE = 2000;
 const SYNC_DEBOUNCE_MS = 2500;
 
 function toPlainConfig(config = {}, includePassword = false) {
@@ -110,6 +112,60 @@ function runMdbReader(args, timeoutMs = 300000) {
       },
     );
   });
+}
+
+async function streamMdbRows(config, { since, afterReceiveMemberId = 0, pageSize = MDB_SYNC_PAGE_SIZE } = {}, handlers = {}) {
+  const args = [
+    'sync-stream',
+    `--path=${config.filePath}`,
+    `--password=${config.password || ''}`,
+    `--pageSize=${pageSize}`,
+  ];
+  if (since) args.push(`--since=${since}`);
+  if (afterReceiveMemberId > 0) args.push(`--afterReceiveMemberId=${afterReceiveMemberId}`);
+
+  const child = spawn(getMdbReaderPath(), args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  handlers.onChild?.(child);
+  let stderr = '';
+  let childError = null;
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.on('error', (error) => { childError = error; });
+  const closeResult = new Promise((resolve) => child.on('close', (code, signal) => resolve({ code, signal })));
+  const lineReader = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+  let complete = null;
+
+  try {
+    for await (const line of lineReader) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        throw new Error('MDB Reader의 스트리밍 응답을 해석하지 못했습니다.');
+      }
+      if (event.type === 'page') {
+        await handlers.onPage?.(event, child);
+      } else if (event.type === 'complete') {
+        complete = event;
+      } else {
+        const error = new Error(event.error || '설치된 MDB Reader가 스트리밍 동기화를 지원하지 않습니다.');
+        error.code = 'MDB_READER_STREAM_UNSUPPORTED';
+        throw error;
+      }
+    }
+    const { code, signal } = await closeResult;
+    if (childError) throw childError;
+    if (code !== 0 || signal) throw new Error(stderr.trim() || 'MDB Reader가 비정상 종료되었습니다.');
+    if (!complete?.ok) throw new Error(complete?.error || 'MDB Reader가 완료 정보를 반환하지 않았습니다.');
+    return complete;
+  } catch (error) {
+    if (!child.killed) child.kill();
+    throw error;
+  } finally {
+    lineReader.close();
+    handlers.onChild?.(null);
+  }
 }
 
 function hasMdbReader() {
@@ -443,6 +499,7 @@ function getDateWithGrace(value, graceMs = 2 * 60 * 1000) {
 module.exports = function setupMdbService(ipcMain, memberRepository, settingsStore, app) {
   let syncTimer = null;
   let debounceTimer = null;
+  let activeMdbReader = null;
   let isSyncing = false;
   let syncGeneration = 0;
   let lastObservedMtimeMs = 0;
@@ -488,6 +545,9 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
     if (debounceTimer) {
       clearTimeout(debounceTimer);
       debounceTimer = null;
+    }
+    if (activeMdbReader && !activeMdbReader.killed) {
+      activeMdbReader.kill();
     }
     lastObservedMtimeMs = 0;
     // 엑셀을 원본으로 선택한 뒤 이전 MDB 감시가 다시 데이터를 섞어 넣지 않도록
@@ -586,6 +646,65 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
     try {
       const startedAt = Date.now();
       const runFullSync = async () => {
+        if (hasMdbReader()) {
+          const syncId = `mdb-full-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          let totalTarget = 0;
+          let totalFetched = 0;
+          let syncedAt = new Date().toISOString();
+          let maxReceiveMemberId = 0;
+          memberRepository.beginMdbFullSync(syncId);
+          try {
+            const complete = await streamMdbRows(config, { pageSize: MDB_SYNC_PAGE_SIZE }, {
+              onChild: (child) => { activeMdbReader = child; },
+              onPage: async (event, child) => {
+                if (isStaleSync()) {
+                  if (child && !child.killed) child.kill();
+                  throw new Error('MDB 동기화가 취소되었습니다.');
+                }
+                const rows = normalizeRows(event.rows);
+                totalTarget = Number(event.total || totalTarget || 0);
+                totalFetched += rows.length;
+                maxReceiveMemberId = Math.max(maxReceiveMemberId, getMaxReceiveMemberId(rows));
+                memberRepository.stageMdbRows(syncId, rows);
+                syncedAt = event.syncedAt || syncedAt;
+                emitStatus({
+                  state: 'syncing',
+                  message: `데이터 읽는 중... (${totalFetched.toLocaleString()} / ${totalTarget.toLocaleString()}건)`,
+                  rowCount: totalFetched,
+                  error: '',
+                });
+              },
+            });
+            activeMdbReader = null;
+            if (isStaleSync()) {
+              memberRepository.discardMdbFullSync(syncId);
+              return cancelledResult();
+            }
+            const mdbRowCount = memberRepository.commitMdbFullSync(syncId);
+            syncedAt = complete.syncedAt || syncedAt;
+            settingsStore.set('mdbSync.maxReceiveMemberId', maxReceiveMemberId);
+            settingsStore.set('mdbSync.lastFullSyncAt', syncedAt);
+            settingsStore.set('mdbSync.lastUpdateScanAt', syncedAt);
+            const elapsedMs = Date.now() - startedAt;
+            rememberSyncMeta({ syncedAt, rowCount: mdbRowCount, elapsedMs });
+            emitStatus({
+              state: 'idle',
+              message: `MDB 동기화 완료: ${mdbRowCount.toLocaleString()}건`,
+              syncedAt,
+              rowCount: mdbRowCount,
+              elapsedMs,
+              error: '',
+            });
+            return { ok: true, rowCount: mdbRowCount, sourceRows: totalFetched, total: totalTarget, incremental: false, elapsedMs, syncedAt, maxReceiveMemberId };
+          } catch (error) {
+            activeMdbReader = null;
+            memberRepository.discardMdbFullSync(syncId);
+            if (isStaleSync()) return cancelledResult();
+            throw error;
+          }
+        }
+
+        // 전용 Reader가 없는 개발/복구 환경의 PowerShell fallback 경로.
         let lastId = 0;
         let totalFetched = 0;
         let totalTarget = 0;

@@ -86,6 +86,18 @@ function createMemberRepository(userDataPath) {
       details_json TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS mdb_sync_staging (
+      sync_id TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      name TEXT,
+      phone TEXT,
+      location_name TEXT,
+      last_payment_month TEXT,
+      updated_at TEXT,
+      PRIMARY KEY (sync_id, source_key)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_members_source ON members(source);
     CREATE INDEX IF NOT EXISTS idx_members_deleted ON members(deleted);
     CREATE INDEX IF NOT EXISTS idx_members_location ON members(location_name);
@@ -93,6 +105,7 @@ function createMemberRepository(userDataPath) {
     CREATE INDEX IF NOT EXISTS idx_members_phone ON members(phone);
     CREATE INDEX IF NOT EXISTS idx_members_updated ON members(updated_at);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_timestamp ON mdb_sync_logs(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_mdb_sync_staging_sync_id ON mdb_sync_staging(sync_id);
   `);
 
   const insertMember = db.prepare(`
@@ -147,6 +160,26 @@ function createMemberRepository(userDataPath) {
     DELETE FROM mdb_sync_logs WHERE timestamp < datetime('now', '-30 days')
   `);
   const getExistingData = db.prepare('SELECT data_json FROM members WHERE source = ? AND source_key = ?');
+  const clearStaging = db.prepare('DELETE FROM mdb_sync_staging');
+  const deleteStagingBySyncId = db.prepare('DELETE FROM mdb_sync_staging WHERE sync_id = ?');
+  const stageMdbRow = db.prepare(`
+    INSERT INTO mdb_sync_staging (sync_id, source_key, data_json, name, phone, location_name, last_payment_month, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(sync_id, source_key) DO UPDATE SET
+      data_json = excluded.data_json,
+      name = excluded.name,
+      phone = excluded.phone,
+      location_name = excluded.location_name,
+      last_payment_month = excluded.last_payment_month,
+      updated_at = excluded.updated_at
+  `);
+  const countStagingBySyncId = db.prepare('SELECT COUNT(*) AS count FROM mdb_sync_staging WHERE sync_id = ?');
+  const copyStagingToMembers = db.prepare(`
+    INSERT INTO members (source, source_key, data_json, name, phone, location_name, last_payment_month, updated_at, deleted, synced_at)
+    SELECT 'mdb', source_key, data_json, name, phone, location_name, last_payment_month, updated_at, 0, CURRENT_TIMESTAMP
+    FROM mdb_sync_staging
+    WHERE sync_id = ?
+  `);
 
   function withTransaction(work) {
     db.exec('BEGIN IMMEDIATE');
@@ -360,6 +393,54 @@ function createMemberRepository(userDataPath) {
       return withTransaction(() => {
         deleteAllMembers.run();
         db.prepare('DELETE FROM mdb_sync_logs').run();
+        return true;
+      });
+    },
+
+    beginMdbFullSync(syncId) {
+      return withTransaction(() => {
+        // 이전에 중단된 동기화 임시 데이터는 재사용하지 않는다.
+        clearStaging.run();
+        return syncId;
+      });
+    },
+
+    stageMdbRows(syncId, rows) {
+      return withTransaction(() => {
+        for (const row of rows) {
+          if (!row || isTruthyAccessValue(row.mdbDeleted)) continue;
+          const sourceKey = getSourceKey({ ...row, source: 'mdb' });
+          if (!sourceKey) continue;
+          const fields = extractFields({ ...row, source: 'mdb' });
+          stageMdbRow.run(
+            syncId,
+            sourceKey,
+            JSON.stringify({ ...row, source: 'mdb', sourceKey }),
+            fields.name,
+            fields.phone,
+            fields.locationName,
+            fields.lastPaymentMonth,
+            fields.updatedAt,
+          );
+        }
+        return Number(countStagingBySyncId.get(syncId).count || 0);
+      });
+    },
+
+    commitMdbFullSync(syncId) {
+      return withTransaction(() => {
+        const stagedCount = Number(countStagingBySyncId.get(syncId).count || 0);
+        // 마지막 페이지까지 성공했을 때만 현재 화면 데이터를 교체한다.
+        deleteAllMembers.run();
+        copyStagingToMembers.run(syncId);
+        clearStaging.run();
+        return stagedCount;
+      });
+    },
+
+    discardMdbFullSync(syncId) {
+      return withTransaction(() => {
+        deleteStagingBySyncId.run(syncId);
         return true;
       });
     },
