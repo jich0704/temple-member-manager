@@ -262,11 +262,15 @@ export async function loginTempleAccount(
       return { ok: false, error: '승인되지 않았거나 비활성화된 사찰 계정입니다. 관리자에게 문의해 주세요.' };
     }
 
-    // isActive, loginId, templeName은 관리 전용 필드이며 클라이언트는 활동 시각만 기록한다.
-    await setDoc(doc(db, 'temples', account.uid), {
-      lastLoginAt: nowIso,
-      lastActiveAt: nowIso,
-    }, { merge: true });
+    // 마스터 계정은 사찰 프로필을 소유하지 않으며 Firestore 규칙상 temples/{uid}를
+    // 갱신할 권한도 없다. 일반 사찰의 활동 시각만 기록해야 로그인 성공 결과와
+    // 보안 규칙이 충돌하지 않는다.
+    if (!account.isMasterAdmin) {
+      await setDoc(doc(db, 'temples', account.uid), {
+        lastLoginAt: nowIso,
+        lastActiveAt: nowIso,
+      }, { merge: true });
+    }
     return { ok: true, account };
   } catch (error: any) {
     const code = error?.code || '';
