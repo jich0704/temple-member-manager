@@ -15,7 +15,7 @@ interface Props {
   onOpenSolapiSetup: () => void;
   onOpenSmsHistory: () => void;
   solapiBalance?: number | null;
-  onMdbSynced: () => void;
+  onMdbSynced: (options?: { clear?: boolean }) => void | Promise<void>;
   locations?: string[];
   account?: TempleAccount | null;
   onLogout?: () => void;

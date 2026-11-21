@@ -5,6 +5,10 @@ const ALL_LOCATION = '전체';
 const LOCATION_NAME = '위치명';
 const RECENT_SMS_DATE = '최근발송일';
 
+type RefreshOptions = {
+  clear?: boolean;
+};
+
 const DEFAULT_SETTINGS: Settings = {
   warningDays: 30,
   criticalDays: 14,
@@ -46,13 +50,21 @@ export const useMembers = (
   const isInitialized = useRef(false);       // init 완료 여부
   const suppressEffect = useRef(true);       // init 직후 effect 중복 실행 억제
   const reloadMembersRef = useRef<() => Promise<void>>(async () => {});
+  // 최신 요청만 화면 상태를 바꾸도록 보장한다. 대용량 목록 조회가 겹쳐도
+  // 먼저 시작된 요청의 오래된 응답이 최신 목록을 덮어쓰지 않는다.
+  const memberRequestIdRef = useRef(0);
+  const statsRequestIdRef = useRef(0);
 
   // settings state → ref 동기화
   useEffect(() => { settingsRef.current = settings; }, [settings]);
 
   // ─── 회원 데이터 로드 ────────────────────────────────────────────────────
   const reloadMembers = useCallback(async () => {
-    if (!window.api?.getMembersPage) return;
+    if (!window.api?.getMembersPage) {
+      setIsLoading(false);
+      return;
+    }
+    const requestId = ++memberRequestIdRef.current;
     setIsLoading(true);
     try {
       const s = settingsRef.current;
@@ -62,7 +74,7 @@ export const useMembers = (
         sortKey, sortDir,
         warningDays: s.warningDays, criticalDays: s.criticalDays,
       });
-      if (!pageData) return;
+      if (!pageData || requestId !== memberRequestIdRef.current) return;
 
       const latestDates = smsLatestDatesRef.current;
       const mappedMembers = pageData.members.map((m: Member) => ({
@@ -75,9 +87,13 @@ export const useMembers = (
       setTotalCount(pageData.totalCount);
       setTotalPages(pageData.totalPages);
     } catch (e) {
-      console.error('회원 로딩 실패:', e);
+      if (requestId === memberRequestIdRef.current) {
+        console.error('회원 로딩 실패:', e);
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === memberRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [page, limit, activeLocation, activeFilter, searchQuery, sortKey, sortDir]);
 
@@ -158,15 +174,17 @@ export const useMembers = (
   // ─── stats + SMS 리프레시 ────────────────────────────────────────────────
   const loadStatsAndHistory = useCallback(async () => {
     if (!window.api) return;
+    const requestId = ++statsRequestIdRef.current;
     const s = settingsRef.current;
     const statsData = await window.api.getLocationStats({
       warningDays: s.warningDays, criticalDays: s.criticalDays,
     });
-    if (statsData) setLocationStats(statsData);
+    if (statsData && requestId === statsRequestIdRef.current) setLocationStats(statsData);
 
     if (window.api.getSmsHistory) {
       try {
         const historyData: SmsHistoryItem[] = await window.api.getSmsHistory();
+        if (requestId !== statsRequestIdRef.current) return;
         const latestDates = new Map<string, string>();
         historyData?.forEach(item => {
           if (!item.success) return;
@@ -229,7 +247,20 @@ export const useMembers = (
     exportToExcel(allData.members);
   }, [activeLocation, activeFilter, searchQuery, sortKey, sortDir]);
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(async ({ clear = false }: RefreshOptions = {}) => {
+    if (clear) {
+      // DB 초기화가 성공한 직후에는 재조회 완료를 기다리지 않고 기존 행을 즉시 숨긴다.
+      // 동시에 진행 중이던 이전 조회 결과도 무효화한다.
+      memberRequestIdRef.current += 1;
+      statsRequestIdRef.current += 1;
+      setMembers([]);
+      setTotalCount(0);
+      setTotalPages(0);
+      setLocationStats({
+        [ALL_LOCATION]: { total: 0, active: 0, expired: 0, oneMonth: 0, twoWeeks: 0 },
+      });
+      setIsLoading(false);
+    }
     await loadStatsAndHistory();
     await reloadMembersRef.current();
   }, [loadStatsAndHistory]);

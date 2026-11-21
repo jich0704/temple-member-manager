@@ -24,7 +24,7 @@ interface MdbSyncStatus {
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSynced: () => void;
+  onSynced: (options?: { clear?: boolean }) => void | Promise<void>;
   hasMembers: boolean;
 }
 
@@ -136,7 +136,7 @@ export const MdbSyncModal = ({ isOpen, onClose, onSynced, hasMembers }: Props) =
         setMessage('데이터가 초기화되었습니다.');
         setConfig((prev) => ({ ...prev, filePath: '', password: '', hasPassword: false, enabled: false }));
         await window.api.saveMdbConfig({ filePath: '', password: '', enabled: false });
-        await onSynced();
+        await onSynced({ clear: true });
       } else {
         setMessage(result.error || '데이터 초기화에 실패했습니다.');
       }
