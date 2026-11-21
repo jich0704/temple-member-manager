@@ -34,7 +34,7 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { members, totalCount, totalPages, isLoading, stats, locationStats, handleUpload, handleDeleteMembers, reloadMembers, refreshAll, settings, handleUpdateSettings, handleExportExcel } = useMembers(
+  const { members, totalCount, totalPages, isLoading, locationStats, handleUpload, handleDeleteMembers, refreshAll, settings, handleUpdateSettings, handleExportExcel } = useMembers(
     activeLocation, activeFilter, page, limit, sortKey, sortDir, searchQuery
   );
   
@@ -274,6 +274,8 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
             onOpenSmsHistory={() => setIsHistoryModalOpen(true)}
             solapiBalance={solapiBalance}
             onMdbSynced={refreshAll}
+            onUploadExcel={handleUpload}
+            onExportExcel={handleExportExcel}
             locations={locations}
             account={account}
             onLogout={onLogout}

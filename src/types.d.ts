@@ -52,8 +52,26 @@ declare global {
   interface Window {
     api: {
       addMembers: (data: Member[] | { data: Member[]; mode: 'append' | 'overwrite' }) => Promise<void>;
-      deleteMembers: (data: Member[]) => Promise<Member[]>;
+      deleteMembers: (data: Array<Member | string | number>) => Promise<Member[]>;
       loadMembers: () => Promise<Member[]>;
+      getMembersPage: (options: {
+        page?: number;
+        limit?: number;
+        location?: string;
+        statusFilter?: string;
+        search?: string;
+        sortKey?: string;
+        sortDir?: 'asc' | 'desc';
+        warningDays?: number;
+        criticalDays?: number;
+      }) => Promise<{ members: Member[]; totalCount: number; totalPages: number; currentPage: number }>;
+      getLocationStats: (options?: { warningDays?: number; criticalDays?: number }) => Promise<Record<string, {
+        total: number;
+        active: number;
+        expired: number;
+        twoWeeks: number;
+        oneMonth: number;
+      }>>;
       sendSMS: (payload: SendSMSPayload) => Promise<SendSMSResponse>;
       getSolapiBalance: (keys: { apiKey: string; apiSecret: string }) => Promise<{ success: boolean; balance?: any; error?: string }>;
       openExternal: (url: string) => Promise<boolean>;

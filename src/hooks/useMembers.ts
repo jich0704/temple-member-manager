@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Member, Settings, SmsHistoryItem } from '../types/member';
 
 const ALL_LOCATION = '전체';
-const LOCATION_NAME = '위치명';
 const RECENT_SMS_DATE = '최근발송일';
 
 type RefreshOptions = {
@@ -214,15 +213,14 @@ export const useMembers = (
   }, []);
 
   const handleUpload = useCallback(async (file: File, mode: 'append' | 'overwrite' = 'append') => {
-    try {
-      const { parseExcel } = await import('../service/excelService');
-      const parsed = await parseExcel(file);
-      await window.api!.addMembers({ data: parsed, mode });
-      await loadStatsAndHistory();
-      await reloadMembers();
-    } catch (error) {
-      console.error('엑셀 업로드 실패:', error);
-    }
+    const { parseExcel } = await import('../service/excelService');
+    const parsed = await parseExcel(file);
+    if (parsed.length === 0) throw new Error('회원 데이터가 없는 엑셀 파일입니다.');
+    if (!window.api?.addMembers) throw new Error('데스크톱 앱 환경에서만 엑셀 데이터를 저장할 수 있습니다.');
+    await window.api.addMembers({ data: parsed, mode });
+    await loadStatsAndHistory();
+    await reloadMembers();
+    return parsed.length;
   }, [reloadMembers, loadStatsAndHistory]);
 
   const handleDeleteMembers = useCallback(async (ids: string[]) => {
@@ -243,17 +241,20 @@ export const useMembers = (
   }, [locationStats, activeLocation]);
 
   const handleExportExcel = useCallback(async () => {
-    if (!window.api?.getMembersPage) return;
+    if (!window.api?.getMembersPage) throw new Error('데스크톱 앱 환경에서만 백업 파일을 만들 수 있습니다.');
     const { exportToExcel } = await import('../service/excelService');
     const s = settingsRef.current;
     const allData = await window.api.getMembersPage({
       page: 1, limit: 1000000,
-      location: activeLocation, statusFilter: activeFilter,
-      search: searchQuery, sortKey, sortDir,
+      // 백업은 현재 카드/검색 필터와 무관하게 전체 회원 데이터를 대상으로 한다.
+      location: ALL_LOCATION, statusFilter: '전체',
+      search: '', sortKey: '신도번호', sortDir: 'asc',
       warningDays: s.warningDays, criticalDays: s.criticalDays,
     });
+    if (!allData.members.length) throw new Error('내보낼 회원 데이터가 없습니다.');
     exportToExcel(allData.members);
-  }, [activeLocation, activeFilter, searchQuery, sortKey, sortDir]);
+    return allData.members.length;
+  }, []);
 
   const refreshAll = useCallback(async ({ clear = false }: RefreshOptions = {}) => {
     if (clear) {

@@ -1,5 +1,5 @@
-import { CalendarClock, Check, Clock, Database, LogOut, ShieldCheck, User, X } from 'lucide-react';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { CalendarClock, Check, Clock, Database, FileDown, FileUp, LogOut, ShieldCheck, User, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import type { Settings } from '../types/member';
 import type { TempleAccount } from '../service/firebaseSyncService';
 import { AutoSmsSettingsModal } from './ui/autoSmsSettingsModal';
@@ -16,6 +16,8 @@ interface Props {
   onOpenSmsHistory: () => void;
   solapiBalance?: number | null;
   onMdbSynced: (options?: { clear?: boolean }) => void | Promise<void>;
+  onUploadExcel: (file: File, mode: 'append' | 'overwrite') => Promise<number>;
+  onExportExcel: () => Promise<number>;
   locations?: string[];
   account?: TempleAccount | null;
   onLogout?: () => void;
@@ -39,13 +41,18 @@ const fontSizeOptions = [
   { label: '아주크게', value: 20 },
 ];
 
-const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance, onMdbSynced, locations = [], account, onLogout }: Props) => {
+const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onOpenSmsHistory, solapiBalance, onMdbSynced, onUploadExcel, onExportExcel, locations = [], account, onLogout }: Props) => {
   const [isColorModalOpen, setIsColorModalOpen] = useState(false);
   const [isFontModalOpen, setIsFontModalOpen] = useState(false);
   const [isAutoSmsModalOpen, setIsAutoSmsModalOpen] = useState(false);
   const [isMdbModalOpen, setIsMdbModalOpen] = useState(false);
   const [isMdbLogsModalOpen, setIsMdbLogsModalOpen] = useState(false);
+  const [pendingExcelFile, setPendingExcelFile] = useState<File | null>(null);
+  const [isExcelImportModalOpen, setIsExcelImportModalOpen] = useState(false);
+  const [isExcelImporting, setIsExcelImporting] = useState(false);
+  const [excelImportError, setExcelImportError] = useState('');
   const [appVersion, setAppVersion] = useState('1.0.0');
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   const [editSettings, setEditSettings] = useState<Settings>(settings);
   const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; isAlert?: boolean; onConfirm: () => void } | null>(null);
@@ -81,6 +88,68 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
     setEditSettings(settings);
     setIsColorModalOpen(false);
     setIsFontModalOpen(false);
+  };
+
+  const handleExcelFileSelected = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!/\.(xlsx|xls)$/i.test(file.name)) {
+      setModalState({
+        isOpen: true,
+        title: '파일 형식 오류',
+        message: '엑셀 파일(.xlsx 또는 .xls)만 불러올 수 있습니다.',
+        isAlert: true,
+        onConfirm: () => setModalState(null),
+      });
+      return;
+    }
+    setPendingExcelFile(file);
+    setExcelImportError('');
+    setIsExcelImportModalOpen(true);
+  };
+
+  const handleExcelImport = async (mode: 'append' | 'overwrite') => {
+    if (!pendingExcelFile) return;
+    setIsExcelImporting(true);
+    setExcelImportError('');
+    try {
+      const count = await onUploadExcel(pendingExcelFile, mode);
+      setIsExcelImportModalOpen(false);
+      setPendingExcelFile(null);
+      setModalState({
+        isOpen: true,
+        title: '엑셀 가져오기 완료',
+        message: `${count.toLocaleString()}건의 회원 데이터를 ${mode === 'overwrite' ? '교체' : '처리'}했습니다.`,
+        isAlert: true,
+        onConfirm: () => setModalState(null),
+      });
+    } catch (error) {
+      setExcelImportError(error instanceof Error ? error.message : '엑셀 데이터를 가져오지 못했습니다.');
+    } finally {
+      setIsExcelImporting(false);
+    }
+  };
+
+  const handleExcelExport = async () => {
+    try {
+      const count = await onExportExcel();
+      setModalState({
+        isOpen: true,
+        title: '엑셀 백업 완료',
+        message: `${count.toLocaleString()}명의 회원 데이터를 엑셀 파일로 저장했습니다.`,
+        isAlert: true,
+        onConfirm: () => setModalState(null),
+      });
+    } catch (error) {
+      setModalState({
+        isOpen: true,
+        title: '엑셀 백업 실패',
+        message: error instanceof Error ? error.message : '엑셀 파일을 만들지 못했습니다.',
+        isAlert: true,
+        onConfirm: () => setModalState(null),
+      });
+    }
   };
 
   const menuFontStyle = {
@@ -167,6 +236,30 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
               <Database className="w-3.5 h-3.5 text-slate-500 group-hover:scale-110 transition-transform" />
               <span>MDB 연동</span>
             </button>
+            <div className="w-px h-4 bg-slate-200 mx-1"></div>
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
+              onClick={() => excelInputRef.current?.click()}
+            >
+              <FileUp className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+              <span>엑셀 불러오기</span>
+            </button>
+            <div className="w-px h-4 bg-slate-200 mx-1"></div>
+            <button
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group disabled:opacity-50"
+              onClick={handleExcelExport}
+              disabled={!hasMembers}
+            >
+              <FileDown className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+              <span>엑셀 백업</span>
+            </button>
+            <input
+              ref={excelInputRef}
+              type="file"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              className="hidden"
+              onChange={handleExcelFileSelected}
+            />
             <div className="w-px h-4 bg-slate-200 mx-1"></div>
             <button
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-md transition-colors group"
@@ -332,6 +425,45 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
               </Button>
               <Button className="bg-slate-900 hover:bg-slate-800 text-white" onClick={handleSaveSettings}>
                 저장하기
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isExcelImportModalOpen && pendingExcelFile && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">엑셀 회원 데이터 가져오기</h2>
+                <p className="text-xs text-slate-500 mt-1 truncate max-w-[320px]">{pendingExcelFile.name}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={isExcelImporting}
+                onClick={() => { setIsExcelImportModalOpen(false); setPendingExcelFile(null); }}
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </Button>
+            </div>
+            <div className="p-6 space-y-4 text-sm text-slate-600">
+              <p>첫 번째 시트의 첫 행을 컬럼명으로 읽습니다. 기존 데이터가 있을 경우 원하는 방식을 선택해 주세요.</p>
+              {hasMembers && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">“기존 데이터를 교체”하면 MDB에서 동기화한 데이터도 함께 삭제됩니다.</p>}
+              {excelImportError && <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">{excelImportError}</p>}
+            </div>
+            <div className="px-6 py-4 border-t bg-slate-50 flex justify-end gap-2">
+              <Button variant="ghost" disabled={isExcelImporting} onClick={() => { setIsExcelImportModalOpen(false); setPendingExcelFile(null); }}>
+                취소
+              </Button>
+              {hasMembers && (
+                <Button variant="outline" disabled={isExcelImporting} onClick={() => handleExcelImport('append')}>
+                  기존 데이터에 추가
+                </Button>
+              )}
+              <Button className="bg-slate-900 text-white hover:bg-slate-800" disabled={isExcelImporting} onClick={() => handleExcelImport(hasMembers ? 'overwrite' : 'append')}>
+                {isExcelImporting ? '가져오는 중...' : hasMembers ? '기존 데이터를 교체' : '가져오기'}
               </Button>
             </div>
           </div>
