@@ -212,12 +212,17 @@ export const useMembers = (
     if (window.api?.saveSettings) await window.api.saveSettings(newSettings);
   }, []);
 
-  const handleUpload = useCallback(async (file: File, mode: 'append' | 'overwrite' = 'append') => {
+  const handleUpload = useCallback(async (file: File) => {
     const { parseExcel } = await import('../service/excelService');
     const parsed = await parseExcel(file);
     if (parsed.length === 0) throw new Error('회원 데이터가 없는 엑셀 파일입니다.');
     if (!window.api?.addMembers) throw new Error('데스크톱 앱 환경에서만 엑셀 데이터를 저장할 수 있습니다.');
-    await window.api.addMembers({ data: parsed, mode });
+    if (window.api.activateExcelSource) {
+      const result = await window.api.activateExcelSource();
+      if (!result.ok) throw new Error(result.error || '기존 MDB 연동을 해제하지 못했습니다.');
+    }
+    // 엑셀을 새 원본으로 선택하면 기존 화면 데이터(MDB 또는 이전 엑셀)를 교체한다.
+    await window.api.addMembers({ data: parsed, mode: 'overwrite' });
     await loadStatsAndHistory();
     await reloadMembers();
     return parsed.length;

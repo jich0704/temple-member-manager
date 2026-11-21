@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('mdb-sync-status', listener);
   },
   clearMdbData: () => ipcRenderer.invoke('clear-mdb-data'),
+  activateExcelSource: () => ipcRenderer.invoke('activate-excel-source'),
   getMembersPage: (options) => ipcRenderer.invoke('get-members-page', options),
   getLocationStats: (options) => ipcRenderer.invoke('get-location-stats', options),
   getMdbSyncLogs: (options) => ipcRenderer.invoke('get-mdb-sync-logs', options),

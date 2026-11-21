@@ -444,6 +444,7 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
   let syncTimer = null;
   let debounceTimer = null;
   let isSyncing = false;
+  let syncGeneration = 0;
   let lastObservedMtimeMs = 0;
   let lastStatus = {
     state: 'idle',
@@ -475,6 +476,24 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
     settingsStore.set('mdbSync', merged);
     restartPolling();
     return toPlainConfig(merged);
+  };
+
+  const deactivateMdbSync = () => {
+    // 이미 실행 중인 MDB 읽기가 완료되더라도 이후 DB에 반영하지 못하게 한다.
+    syncGeneration += 1;
+    if (syncTimer) {
+      clearInterval(syncTimer);
+      syncTimer = null;
+    }
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+    lastObservedMtimeMs = 0;
+    // 엑셀을 원본으로 선택한 뒤 이전 MDB 감시가 다시 데이터를 섞어 넣지 않도록
+    // MDB 연결 정보와 동기화 커서를 함께 제거한다. MDB 파일 자체는 전혀 수정하지 않는다.
+    settingsStore.set('mdbSync', { ...DEFAULT_CONFIG });
+    emitStatus({ state: 'idle', message: 'MDB 연동 해제됨', rowCount: 0, syncedAt: '', error: '' });
   };
 
   const emitStatus = (patch) => {
@@ -560,6 +579,9 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
     }
 
     isSyncing = true;
+    const runGeneration = syncGeneration;
+    const isStaleSync = () => runGeneration !== syncGeneration;
+    const cancelledResult = () => ({ ok: false, cancelled: true, error: 'MDB 연동이 해제되었습니다.' });
     emitStatus({ state: 'syncing', message: reason === 'auto' ? 'MDB 변경 감지, 동기화 준비 중...' : 'MDB 파일에서 데이터를 읽고 분석하는 중입니다...', error: '' });
     try {
       const startedAt = Date.now();
@@ -574,16 +596,23 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
         
         while (true) {
           const result = await readMdbRows(config, { afterReceiveMemberId: lastId, maxRows: 10000 });
+          if (isStaleSync()) return cancelledResult();
           if (!result.ok) {
             errorMsg = getFailureMessage(result);
             break;
           }
           if (totalTarget === 0) totalTarget = result.total || 0;
+
+          // 첫 MDB 읽기가 성공한 뒤에만 기존 원본의 화면 데이터를 교체한다.
+          // 행이 0건인 MDB도 정상적인 새 원본으로 취급하여 이전 목록을 남기지 않는다.
+          if (totalFetched === 0) {
+            memberRepository.upsertMdbRows([], { fullSync: true });
+          }
           
           if (result.rows && result.rows.length > 0) {
             const rows = normalizeRows(result.rows);
             // UPSERT in chunks
-            mdbRowCount += memberRepository.upsertMdbRows(rows, { fullSync: totalFetched === 0 });
+            mdbRowCount = memberRepository.upsertMdbRows(rows, { fullSync: false });
             maxReceiveMemberId = Math.max(maxReceiveMemberId, rememberMaxReceiveMemberId(rows, { reset: totalFetched === 0 }));
             
             totalFetched += result.rows.length;
@@ -645,6 +674,7 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
       }
 
       const newResult = await readMdbRows(config, { afterReceiveMemberId: watermark });
+      if (isStaleSync()) return cancelledResult();
       if (!newResult.ok) {
         const message = getFailureMessage(newResult);
         emitStatus({ state: 'error', message, error: message });
@@ -664,6 +694,7 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
         if (since) {
           updateScanRan = true;
           const correctionResult = await readMdbRows(config, { since });
+          if (isStaleSync()) return cancelledResult();
           if (!correctionResult.ok) {
             const message = getFailureMessage(correctionResult);
             emitStatus({ state: 'error', message, error: message });
@@ -789,25 +820,18 @@ module.exports = function setupMdbService(ipcMain, memberRepository, settingsSto
 
   ipcMain.handle('clear-mdb-data', async () => {
     try {
-      if (syncTimer) {
-        clearInterval(syncTimer);
-        syncTimer = null;
-      }
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
-      }
       memberRepository.clearMdbMembers();
-      settingsStore.delete('mdbSync.lastSyncAt');
-      settingsStore.delete('mdbSync.lastRowCount');
-      settingsStore.delete('mdbSync.lastFullSyncAt');
-      settingsStore.delete('mdbSync.lastUpdateScanAt');
-      settingsStore.delete('mdbSync.maxReceiveMemberId');
-      settingsStore.set('mdbSync.filePath', '');
-      settingsStore.set('mdbSync.password', '');
-      settingsStore.set('mdbSync.enabled', false);
-      
-      emitStatus({ state: 'idle', message: '데이터 초기화 완료', rowCount: 0, syncedAt: '' });
+      deactivateMdbSync();
+      emitStatus({ state: 'idle', message: '화면 데이터 초기화 완료', rowCount: 0, syncedAt: '', error: '' });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('activate-excel-source', async () => {
+    try {
+      deactivateMdbSync();
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };

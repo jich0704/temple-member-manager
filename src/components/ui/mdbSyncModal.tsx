@@ -127,13 +127,13 @@ export const MdbSyncModal = ({ isOpen, onClose, onSynced, hasMembers }: Props) =
 
   const handleClearData = async () => {
     if (!hasMdbApi || !window.api.clearMdbData) return;
-    if (!confirm('정말 MDB 동기화 데이터를 모두 초기화하시겠습니까? (이 작업은 되돌릴 수 없습니다)')) return;
+    if (!confirm('현재 화면의 회원 데이터를 모두 초기화하고 MDB 연동을 해제하시겠습니까? 원본 MDB 파일은 수정되지 않습니다. (이 작업은 되돌릴 수 없습니다)')) return;
     
     setIsBusy(true);
     try {
       const result = await window.api.clearMdbData();
       if (result.ok) {
-        setMessage('데이터가 초기화되었습니다.');
+        setMessage('화면 데이터가 초기화되고 MDB 연동이 해제되었습니다.');
         setConfig((prev) => ({ ...prev, filePath: '', password: '', hasPassword: false, enabled: false }));
         await window.api.saveMdbConfig({ filePath: '', password: '', enabled: false });
         await onSynced({ clear: true });

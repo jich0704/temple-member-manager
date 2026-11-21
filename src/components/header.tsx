@@ -16,7 +16,7 @@ interface Props {
   onOpenSmsHistory: () => void;
   solapiBalance?: number | null;
   onMdbSynced: (options?: { clear?: boolean }) => void | Promise<void>;
-  onUploadExcel: (file: File, mode: 'append' | 'overwrite') => Promise<number>;
+  onUploadExcel: (file: File) => Promise<number>;
   onExportExcel: () => Promise<number>;
   locations?: string[];
   account?: TempleAccount | null;
@@ -109,18 +109,18 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
     setIsExcelImportModalOpen(true);
   };
 
-  const handleExcelImport = async (mode: 'append' | 'overwrite') => {
+  const handleExcelImport = async () => {
     if (!pendingExcelFile) return;
     setIsExcelImporting(true);
     setExcelImportError('');
     try {
-      const count = await onUploadExcel(pendingExcelFile, mode);
+      const count = await onUploadExcel(pendingExcelFile);
       setIsExcelImportModalOpen(false);
       setPendingExcelFile(null);
       setModalState({
         isOpen: true,
         title: '엑셀 가져오기 완료',
-        message: `${count.toLocaleString()}건의 회원 데이터를 ${mode === 'overwrite' ? '교체' : '처리'}했습니다.`,
+        message: `${count.toLocaleString()}건의 회원 데이터를 화면에 반영했습니다.`,
         isAlert: true,
         onConfirm: () => setModalState(null),
       });
@@ -449,20 +449,15 @@ const Header = ({ settings, onUpdateSettings, hasMembers, onOpenSolapiSetup, onO
               </Button>
             </div>
             <div className="p-6 space-y-4 text-sm text-slate-600">
-              <p>첫 번째 시트의 첫 행을 컬럼명으로 읽습니다. 기존 데이터가 있을 경우 원하는 방식을 선택해 주세요.</p>
-              {hasMembers && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">“기존 데이터를 교체”하면 MDB에서 동기화한 데이터도 함께 삭제됩니다.</p>}
+              <p>첫 번째 시트의 첫 행을 컬럼명으로 읽습니다. 엑셀과 MDB 데이터는 함께 사용하지 않으며, 이 파일을 가져오면 현재 화면의 회원 데이터가 교체됩니다.</p>
+              {hasMembers && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800">현재 화면의 회원 데이터와 MDB 자동 동기화 설정이 초기화됩니다. 선택한 엑셀 원본 파일과 MDB 원본 파일은 수정하지 않습니다.</p>}
               {excelImportError && <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">{excelImportError}</p>}
             </div>
             <div className="px-6 py-4 border-t bg-slate-50 flex justify-end gap-2">
               <Button variant="ghost" disabled={isExcelImporting} onClick={() => { setIsExcelImportModalOpen(false); setPendingExcelFile(null); }}>
                 취소
               </Button>
-              {hasMembers && (
-                <Button variant="outline" disabled={isExcelImporting} onClick={() => handleExcelImport('append')}>
-                  기존 데이터에 추가
-                </Button>
-              )}
-              <Button className="bg-slate-900 text-white hover:bg-slate-800" disabled={isExcelImporting} onClick={() => handleExcelImport(hasMembers ? 'overwrite' : 'append')}>
+              <Button className="bg-slate-900 text-white hover:bg-slate-800" disabled={isExcelImporting} onClick={handleExcelImport}>
                 {isExcelImporting ? '가져오는 중...' : hasMembers ? '기존 데이터를 교체' : '가져오기'}
               </Button>
             </div>

@@ -398,7 +398,9 @@ function createMemberRepository(userDataPath) {
 
     upsertMdbRows(rows, { fullSync = false } = {}) {
       return withTransaction(() => {
-        if (fullSync) deleteMdbMembers.run();
+        // 회원 목록은 MDB 또는 엑셀 중 하나의 원본만 표시한다. MDB 전체 동기화를
+        // 시작하면 이전 엑셀 목록도 함께 교체하되, 원본 MDB 파일은 읽기만 한다.
+        if (fullSync) deleteAllMembers.run();
 
         // Run log cleanup periodically (e.g. at the start of a sync chunk)
         try { cleanupSyncLogs.run(); } catch {}
