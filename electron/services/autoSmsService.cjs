@@ -2,6 +2,25 @@ const fs = require('fs');
 const path = require('path');
 const { SolapiMessageService } = require('solapi');
 
+const MAX_MESSAGE_BYTES = 2000;
+
+function getMessageByteLength(text) {
+  let byteLength = 0;
+  for (const char of String(text || '')) {
+    byteLength += char.codePointAt(0) <= 0x7f ? 1 : 2;
+  }
+  return byteLength;
+}
+
+function applyMacros(template, member) {
+  let finalMessage = template;
+  Object.keys(member).forEach((key) => {
+    const regex = new RegExp(`{${key}}`, 'g');
+    finalMessage = finalMessage.replace(regex, String(member[key] || ''));
+  });
+  return finalMessage;
+}
+
 module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app, saveSmsHistory, memberRepository, getSendOutcome, getFailedTargetsFromError) {
   ipcMain.handle('get-auto-sms-config', () => {
     return store.get('autoSmsConfig') || null;
@@ -131,30 +150,73 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
 
       if (validTargets.length === 0) continue;
 
-      const messages = validTargets.map(t => {
-        let finalMessage = rule.template;
-        Object.keys(t.member).forEach(key => {
-          const regex = new RegExp(`{${key}}`, 'g');
-          finalMessage = finalMessage.replace(regex, String(t.member[key] || ''));
+      const invalidTargets = [];
+      const messageTargets = [];
+      for (const target of validTargets) {
+        const finalMessage = applyMacros(rule.template, target.member);
+        const byteLength = getMessageByteLength(finalMessage);
+        if (!finalMessage.trim()) {
+          invalidTargets.push({
+            ...target,
+            error: '매크로 치환 후 메시지 내용이 비어 있습니다.',
+          });
+          continue;
+        }
+        if (byteLength > MAX_MESSAGE_BYTES) {
+          invalidTargets.push({
+            ...target,
+            error: `매크로 치환 후 메시지가 ${byteLength.toLocaleString()}바이트입니다. 최대 ${MAX_MESSAGE_BYTES.toLocaleString()}바이트까지 발송할 수 있습니다.`,
+          });
+          continue;
+        }
+        messageTargets.push({
+          ...target,
+          message: {
+            to: target.rawPhone,
+            from: settings.solapiSenderNumber.replace(/[^0-9]/g, ''),
+            text: finalMessage,
+          },
         });
+      }
 
-        return {
-          to: t.rawPhone,
-          from: settings.solapiSenderNumber.replace(/[^0-9]/g, ''),
-          text: finalMessage,
-        };
-      });
+      const typeLabel = rule.type === '1month'
+        ? '만료 한달 전'
+        : rule.type === '2weeks'
+          ? '만료 2주 전'
+          : '만료 1주 전';
+      const historyTargets = validTargets.map(t => ({
+        name: t.member.name || t.member['동참자'] || t.member['대주'] || t.member['이름'] || '이름없음',
+        phone: t.member.phone || t.member['휴대폰'] || t.member['전화번호'] || t.member['연락처'] || ''
+      }));
+
+      if (messageTargets.length === 0) {
+        saveSmsHistory({
+          id: Date.now().toString() + '_' + rule.type,
+          date: new Date().toISOString(),
+          template: `[자동 발송 실패]\n${rule.template}`,
+          hasImage: false,
+          targets: historyTargets,
+          success: false,
+          deliveryStatus: 'failed',
+          successCount: 0,
+          failedCount: invalidTargets.length,
+          failedTargets: invalidTargets.map(t => ({ phone: t.rawPhone, error: t.error })),
+          errorMsg: '발송 가능한 메시지가 없습니다. 매크로 치환 결과를 확인해 주세요.',
+        });
+        allRulesSucceeded = false;
+        continue;
+      }
 
       try {
-        const result = await messageService.send(messages, { showMessageList: true });
+        const result = await messageService.send(messageTargets.map(t => t.message), { showMessageList: true });
         const outcome = typeof getSendOutcome === 'function'
-          ? getSendOutcome(result, validTargets.length)
-          : { deliveryStatus: 'success', successCount: validTargets.length, failedCount: 0, failedTargets: [] };
+          ? getSendOutcome(result, messageTargets.length)
+          : { deliveryStatus: 'success', successCount: messageTargets.length, failedCount: 0, failedTargets: [] };
         const failedPhones = new Set(outcome.failedTargets.map((target) => String(target.phone || '').replace(/[^0-9]/g, '')));
 
         // 실패 목록을 받은 경우에만 성공한 대상만 완료 처리한다. 실패한 번호는 다음 실행에서 재시도한다.
         if (outcome.failedCount === 0 || outcome.failedTargets.length > 0) {
-          for (const { duplicateKey, rawPhone } of validTargets) {
+          for (const { duplicateKey, rawPhone } of messageTargets) {
             if (!failedPhones.has(rawPhone)) {
               autoSmsLog[duplicateKey] = new Date().toISOString();
             }
@@ -162,29 +224,32 @@ module.exports = function setupAutoSmsService(ipcMain, store, settingsStore, app
         }
         fs.writeFileSync(logPath, JSON.stringify(autoSmsLog, null, 2), 'utf8');
         
-        let typeLabel = '';
-        if (rule.type === '1month') typeLabel = '만료 한달 전';
-        else if (rule.type === '2weeks') typeLabel = '만료 2주 전';
-        else if (rule.type === '1week') typeLabel = '만료 1주 전';
+        const failedTargets = [
+          ...invalidTargets.map(t => ({ phone: t.rawPhone, error: t.error })),
+          ...outcome.failedTargets,
+        ];
+        const failedCount = failedTargets.length;
+        const deliveryStatus = failedCount === 0
+          ? 'success'
+          : outcome.successCount > 0
+            ? 'partial'
+            : 'failed';
         
         saveSmsHistory({
           id: Date.now().toString() + '_' + rule.type,
           date: new Date().toISOString(),
           template: `[자동 발송: ${typeLabel}]\n${rule.template}`,
           hasImage: false,
-          targets: validTargets.map(t => ({
-            name: t.member.name || t.member['동참자'] || t.member['대주'] || t.member['이름'] || '이름없음',
-            phone: t.member.phone || t.member['휴대폰'] || t.member['전화번호'] || t.member['연락처'] || ''
-          })),
-          success: outcome.deliveryStatus === 'success',
-          deliveryStatus: outcome.deliveryStatus,
+          targets: historyTargets,
+          success: deliveryStatus === 'success',
+          deliveryStatus,
           successCount: outcome.successCount,
-          failedCount: outcome.failedCount,
-          failedTargets: outcome.failedTargets,
-          errorMsg: outcome.failedCount > 0 ? `${outcome.failedCount}명 접수 실패` : undefined,
+          failedCount,
+          failedTargets,
+          errorMsg: failedCount > 0 ? `${failedCount}명 발송 실패` : undefined,
           result
         });
-        if (outcome.deliveryStatus !== 'success') allRulesSucceeded = false;
+        if (deliveryStatus !== 'success') allRulesSucceeded = false;
       } catch (e) {
         console.error('Auto SMS Send Error:', e);
         const failedTargets = typeof getFailedTargetsFromError === 'function'
