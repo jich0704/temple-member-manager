@@ -4,6 +4,15 @@ const path = require('path');
 const { SolapiMessageService } = require('solapi');
 
 const MAX_MMS_IMAGE_BYTES = 200 * 1024;
+const MAX_MESSAGE_BYTES = 2000;
+
+function getMessageByteLength(text) {
+  let byteLength = 0;
+  for (const char of String(text || '')) {
+    byteLength += char.codePointAt(0) <= 0x7f ? 1 : 2;
+  }
+  return byteLength;
+}
 
 function createTemporaryMmsImage(imageBase64) {
   const normalized = String(imageBase64 || '')
@@ -133,6 +142,61 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
         throw new Error('메시지 내용을 입력해 주세요.');
       }
       
+      // 화면에서 입력한 템플릿 길이와 실제 발송 본문의 길이는 다를 수 있다.
+      // 수신자별 매크로 치환을 마친 뒤 메인 프로세스에서 다시 검증한다.
+      const invalidTargets = [];
+      const messages = [];
+      for (const t of targets) {
+        let finalMessage = message;
+        Object.keys(t).forEach((key) => {
+          const regex = new RegExp(`{${key}}`, 'g');
+          finalMessage = finalMessage.replace(regex, String(t[key] || ''));
+        });
+
+        const rawPhone = t.phone || t['휴대폰'] || t['전화번호'] || t['연락처'] || '';
+        const phone = String(rawPhone).replace(/[^0-9]/g, '');
+        const byteLength = getMessageByteLength(finalMessage);
+        if (!finalMessage.trim()) {
+          invalidTargets.push({ phone, error: '매크로 치환 후 메시지 내용이 비어 있습니다.' });
+          continue;
+        }
+        if (byteLength > MAX_MESSAGE_BYTES) {
+          invalidTargets.push({
+            phone,
+            error: `매크로 치환 후 메시지가 ${byteLength.toLocaleString()}바이트입니다. 최대 ${MAX_MESSAGE_BYTES.toLocaleString()}바이트까지 발송할 수 있습니다.`,
+          });
+          continue;
+        }
+        const msgObj = {
+          to: phone,
+          from: settings.solapiSenderNumber.replace(/[^0-9]/g, ''),
+          text: finalMessage,
+        };
+        messages.push(msgObj);
+      }
+
+      if (messages.length === 0) {
+        const errorMsg = '매크로 치환 결과를 확인해 주세요. 발송 가능한 메시지가 없습니다.';
+        saveSmsHistory({
+          id: Date.now().toString(),
+          date: new Date().toISOString(),
+          template: message,
+          hasImage: !!imageBase64,
+          imageBase64: imageBase64 || undefined,
+          targets: targets.map(t => ({
+            name: t.name || t['동참자'] || t['대주'] || t['이름'] || '이름없음',
+            phone: t.phone || t['휴대폰'] || t['전화번호'] || t['연락처'] || ''
+          })),
+          success: false,
+          deliveryStatus: 'failed',
+          successCount: 0,
+          failedCount: invalidTargets.length,
+          failedTargets: invalidTargets,
+          errorMsg,
+        });
+        return { success: false, error: errorMsg, deliveryStatus: 'failed', successCount: 0, failedCount: invalidTargets.length, failedTargets: invalidTargets };
+      }
+
       let fileId = null;
       if (imageBase64) {
         const temporaryImage = createTemporaryMmsImage(imageBase64);
@@ -143,34 +207,30 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
         } else {
           throw new Error('이미지 업로드에 실패했습니다.');
         }
-      }
-
-      const messages = targets.map((t) => {
-        let finalMessage = message;
-        Object.keys(t).forEach((key) => {
-          const regex = new RegExp(`{${key}}`, 'g');
-          finalMessage = finalMessage.replace(regex, String(t[key] || ''));
-        });
-
-        const rawPhone = t.phone || t['휴대폰'] || t['전화번호'] || t['연락처'] || '';
-        const msgObj = {
-          to: String(rawPhone).replace(/[^0-9]/g, ''),
-          from: settings.solapiSenderNumber.replace(/[^0-9]/g, ''),
-          text: finalMessage,
-        };
-
-        if (fileId) {
+        for (const msgObj of messages) {
           msgObj.imageId = fileId;
           msgObj.subject = '\u200B';
           msgObj.type = 'MMS';
         }
-        return msgObj;
-      });
+      }
 
       const sendResult = await messageService.send(messages, { showMessageList: true });
-      const outcome = getSendOutcome(sendResult, targets.length);
-      const errorMsg = outcome.failedCount > 0
-        ? `${outcome.failedCount}명 접수 실패${outcome.failedTargets.length > 0 ? `: ${outcome.failedTargets.map((item) => item.error).join(' / ')}` : ''}`
+      const solapiOutcome = getSendOutcome(sendResult, messages.length);
+      const failedTargets = [...invalidTargets, ...solapiOutcome.failedTargets];
+      const failedCount = invalidTargets.length + solapiOutcome.failedCount;
+      const deliveryStatus = failedCount === 0
+        ? 'success'
+        : solapiOutcome.successCount > 0
+          ? 'partial'
+          : 'failed';
+      const outcome = {
+        deliveryStatus,
+        successCount: solapiOutcome.successCount,
+        failedCount,
+        failedTargets,
+      };
+      const errorMsg = failedCount > 0
+        ? `${failedCount}명 접수 실패${failedTargets.length > 0 ? `: ${failedTargets.map((item) => item.error).join(' / ')}` : ''}`
         : undefined;
       
       saveSmsHistory({
