@@ -49,7 +49,8 @@ const MemberTable = ({
   onPageChange, onItemsPerPageChange, onSortChange, onSearchChange,
   onDeleteMembers, onSendSelected, settings 
 }: Props) => {
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // 페이지를 넘어 선택한 회원도 발송/삭제 대상에 포함하도록 회원 객체를 함께 유지한다.
+  const [selectedMembers, setSelectedMembers] = useState<Map<string, Member>>(new Map());
   const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
   const [localSearch, setLocalSearch] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -144,31 +145,36 @@ const MemberTable = ({
     '--member-list-font-size': `${memberListFontSize}px`,
   } as CSSProperties;
 
-  const isAllSelected = paginatedMembers.length > 0 && paginatedMembers.every((m) => selectedIds.has(String(m.index)));
+  const isAllSelected = paginatedMembers.length > 0 && paginatedMembers.every((m) => selectedMembers.has(String(m.index)));
 
   const handleSelectAll = () => {
-    const newSelected = new Set(selectedIds);
-    if (isAllSelected) paginatedMembers.forEach((m) => newSelected.delete(String(m.index)));
-    else paginatedMembers.forEach((m) => newSelected.add(String(m.index)));
-    setSelectedIds(newSelected);
+    setSelectedMembers((previous) => {
+      const next = new Map(previous);
+      if (isAllSelected) paginatedMembers.forEach((m) => next.delete(String(m.index)));
+      else paginatedMembers.forEach((m) => next.set(String(m.index), m));
+      return next;
+    });
   };
 
-  const handleSelectOne = (id: string) => {
-    const newSelected = new Set(selectedIds);
-    if (newSelected.has(id)) newSelected.delete(id);
-    else newSelected.add(id);
-    setSelectedIds(newSelected);
+  const handleSelectOne = (member: Member) => {
+    const id = String(member.index);
+    setSelectedMembers((previous) => {
+      const next = new Map(previous);
+      if (next.has(id)) next.delete(id);
+      else next.set(id, member);
+      return next;
+    });
   };
 
   const handleDeleteSelected = () => {
-    if (selectedIds.size === 0) return;
+    if (selectedMembers.size === 0) return;
     setModalState({
       isOpen: true,
       title: '회원 단체 삭제',
-      message: `선택한 ${selectedIds.size}명의 회원을 삭제하시겠습니까?`,
+      message: `선택한 ${selectedMembers.size}명의 회원을 삭제하시겠습니까?`,
       onConfirm: () => {
-        onDeleteMembers(Array.from(selectedIds));
-        setSelectedIds(new Set());
+        onDeleteMembers(Array.from(selectedMembers.keys()));
+        setSelectedMembers(new Map());
         setModalState(null);
       }
     });
@@ -191,15 +197,14 @@ const MemberTable = ({
             <Checkbox checked={isAllSelected} onCheckedChange={handleSelectAll} />
             <span className="text-sm font-medium text-gray-500">전체 선택</span>
           </div>
-          {selectedIds.size > 0 && (
+          {selectedMembers.size > 0 && (
             <div className="flex items-center gap-2">
               <Button 
                 variant="secondary" 
                 size="sm" 
                 onClick={() => {
                   if (onSendSelected) {
-                    const targets = paginatedMembers.filter(m => selectedIds.has(String(m.index)));
-                    onSendSelected(targets);
+                    onSendSelected(Array.from(selectedMembers.values()));
                   }
                 }} 
                 className="gap-2 bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 border"
@@ -320,7 +325,7 @@ const MemberTable = ({
         ) : (
           <div className="bg-white">
             {paginatedMembers.map((m) => {
-              const isSelected = selectedIds.has(String(m.index));
+              const isSelected = selectedMembers.has(String(m.index));
               return (
                 <div
                   key={String(m.index)}
@@ -328,7 +333,7 @@ const MemberTable = ({
                   style={tableGridStyle}
                 >
                   <div className="flex items-center">
-                    <Checkbox checked={isSelected} onCheckedChange={() => handleSelectOne(String(m.index))} />
+                    <Checkbox checked={isSelected} onCheckedChange={() => handleSelectOne(m)} />
                   </div>
 
                   {/* 동적 컬럼 데이터 렌더링 */}
