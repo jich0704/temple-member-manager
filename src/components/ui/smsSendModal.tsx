@@ -109,10 +109,15 @@ export const SmsSendModal = ({ isOpen, onClose, targets, onSend, isSending, onAl
             let dataUrl = canvas.toDataURL('image/jpeg', 0.9);
             let base64 = dataUrl.split(',')[1];
 
-            // 변환된 용량이 300KB를 넘으면 화질을 낮춰서 다시 변환
-            if (base64.length * 0.75 > 300 * 1024) {
+            // 솔라피 MMS 이미지는 200KB 이하만 허용한다.
+            if (base64.length * 0.75 > 200 * 1024) {
               dataUrl = canvas.toDataURL('image/jpeg', 0.6);
               base64 = dataUrl.split(',')[1];
+            }
+
+            if (base64.length * 0.75 > 200 * 1024) {
+              reject(new Error('Compressed image exceeds 200KB'));
+              return;
             }
             
             resolve(base64);
@@ -255,7 +260,7 @@ export const SmsSendModal = ({ isOpen, onClose, targets, onSend, isSending, onAl
                   </label>
                   {!imagePreview && (
                     <span className="text-[11px] text-red-500/80 font-medium whitespace-nowrap">
-                      ※ 이미지는 300KB 이하의 JPG 파일 1개만 첨부 가능 (첨부 시 MMS로 자동 전환)
+                      ※ 이미지는 200KB 이하의 JPG 파일 1개만 첨부 가능 (첨부 시 MMS로 자동 전환)
                     </span>
                   )}
                 </div>

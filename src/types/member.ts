@@ -18,11 +18,10 @@ export interface Member {
 
 export interface SendSMSPayload {
   targets: Member[];
-  messageTemplate: string;
-  apiKey: string;
-  apiSecret: string;
-  senderNumber: string;
-  imagePath?: string;
+  /** Electron SMS IPC 서비스가 수신하는 발송 본문 */
+  message: string;
+  /** JPEG로 변환된 Base64 이미지. 있으면 MMS로 발송한다. */
+  imageBase64?: string;
 }
 
 export interface SendSMSResponse {

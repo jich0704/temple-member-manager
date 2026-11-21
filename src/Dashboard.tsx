@@ -158,11 +158,8 @@ const Dashboard = ({ account, onLogout }: DashboardProps) => {
   const handleExecuteSend = async (message: string, imageBase64?: string) => {
     const result = await sendSMS({
       targets: smsTargets,
-      messageTemplate: message,
-      apiKey: settings.solapiApiKey!,
-      apiSecret: settings.solapiApiSecret!,
-      senderNumber: settings.solapiSenderNumber!,
-      imagePath: imageBase64
+      message,
+      imageBase64,
     });
     
     if (result.success) {

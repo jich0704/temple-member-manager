@@ -1,6 +1,29 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const coolsms = require('coolsms-node-sdk').default;
+
+const MAX_MMS_IMAGE_BYTES = 200 * 1024;
+
+function createTemporaryMmsImage(imageBase64) {
+  const normalized = String(imageBase64 || '')
+    .replace(/^data:image\/jpeg;base64,/i, '')
+    .replace(/\s/g, '');
+
+  if (!normalized || !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 !== 0) {
+    throw new Error('MMS 이미지 데이터 형식이 올바르지 않습니다.');
+  }
+
+  const imageBuffer = Buffer.from(normalized, 'base64');
+  if (imageBuffer.length === 0 || imageBuffer.length > MAX_MMS_IMAGE_BYTES) {
+    throw new Error('MMS 이미지는 JPEG 형식의 200KB 이하 파일만 발송할 수 있습니다.');
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'temple-member-manager-mms-'));
+  const filePath = path.join(tempDir, 'image.jpg');
+  fs.writeFileSync(filePath, imageBuffer);
+  return { tempDir, filePath };
+}
 
 module.exports = function setupSmsService(ipcMain, settingsStore, app) {
   const smsHistoryPath = path.join(app.getPath('userData'), 'sms-history.json');
@@ -50,6 +73,7 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
   });
 
   ipcMain.handle('send-sms', async (_, payload) => {
+    let temporaryImageDir = null;
     try {
       const settings = settingsStore.store;
       if (!settings.solapiApiKey || !settings.solapiApiSecret || !settings.solapiSenderNumber) {
@@ -58,10 +82,18 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
       
       const messageService = new coolsms(settings.solapiApiKey, settings.solapiApiSecret);
       const { targets, message, imageBase64 } = payload;
+      if (!Array.isArray(targets) || targets.length === 0) {
+        throw new Error('발송 대상이 없습니다.');
+      }
+      if (typeof message !== 'string' || !message.trim()) {
+        throw new Error('메시지 내용을 입력해 주세요.');
+      }
       
       let fileId = null;
       if (imageBase64) {
-        const result = await messageService.uploadFile(imageBase64, 'IMAGE');
+        const temporaryImage = createTemporaryMmsImage(imageBase64);
+        temporaryImageDir = temporaryImage.tempDir;
+        const result = await messageService.uploadFile(temporaryImage.filePath, 'MMS');
         if (result && result.fileId) {
           fileId = result.fileId;
         } else {
@@ -127,6 +159,14 @@ module.exports = function setupSmsService(ipcMain, settingsStore, app) {
         });
       } catch {}
       return { success: false, error: error.message };
+    } finally {
+      if (temporaryImageDir) {
+        try {
+          fs.rmSync(temporaryImageDir, { recursive: true, force: true });
+        } catch (cleanupError) {
+          console.warn('임시 MMS 이미지 삭제 실패:', cleanupError);
+        }
+      }
     }
   });
 
